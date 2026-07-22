@@ -1,0 +1,136 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Consumidas pelo suite Sidebar do Relume. */
+    --sidebar-width: 15rem;
+    --sidebar-width-icon: 3.25rem;
+    --sidebar-accent: #eeede9;
+    --border-primary: #e6e5e1;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-background-secondary font-sans text-text-primary antialiased;
+    font-size: 14px;
+    overflow: hidden;
+  }
+
+  ::selection {
+    background: #d9e8fb;
+  }
+}
+
+@layer components {
+  /*
+   * O DialogOverlay do Relume vem com `bg-black/90` embutido no DialogContent,
+   * sem prop para customizar. Esse preto quase sólido não combina com o shell
+   * claro, então o véu é suavizado aqui.
+   */
+  div[aria-hidden="true"].bg-black\/90 {
+    background-color: rgb(28 27 25 / 0.32);
+  }
+
+  /* Barras de rolagem discretas, no estilo de app desktop. */
+  .hz-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: #d5d3ce transparent;
+  }
+
+  .hz-scroll::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .hz-scroll::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: 999px;
+    background-color: #d5d3ce;
+  }
+
+  .hz-scroll::-webkit-scrollbar-thumb:hover {
+    background-color: #b9b6b0;
+  }
+
+  /* Conteúdo rico da nota. Reproduz a coluna de leitura do editor. */
+  .hz-prose {
+    @apply text-[15px] leading-[1.65] text-text-primary;
+  }
+
+  .hz-prose > *:first-child {
+    margin-top: 0;
+  }
+
+  .hz-prose h1 {
+    @apply mb-3 mt-8 text-2xl font-bold tracking-[-0.01em];
+  }
+
+  .hz-prose h2 {
+    @apply mb-3 mt-8 text-xl font-bold tracking-[-0.01em];
+  }
+
+  .hz-prose h3 {
+    @apply mb-2 mt-6 text-base font-semibold;
+  }
+
+  .hz-prose p {
+    @apply my-4;
+  }
+
+  .hz-prose ul {
+    @apply my-4 list-disc space-y-2 pl-5;
+  }
+
+  .hz-prose ol {
+    @apply my-4 list-decimal space-y-2 pl-5;
+  }
+
+  .hz-prose li::marker {
+    @apply text-hz-accent;
+  }
+
+  .hz-prose a {
+    @apply text-link-primary underline decoration-link-primary/40 underline-offset-2 hover:decoration-link-primary;
+  }
+
+  .hz-prose blockquote {
+    @apply my-5 border-l-2 border-border-tertiary py-1 pl-4 text-text-tertiary;
+  }
+
+  .hz-prose code {
+    @apply rounded bg-background-tertiary px-1 py-0.5 font-mono text-[0.85em];
+  }
+
+  .hz-prose pre {
+    @apply my-5 overflow-x-auto rounded-lg bg-background-tertiary p-4 font-mono text-xs;
+  }
+
+  .hz-prose figure {
+    @apply my-6;
+  }
+
+  .hz-prose img {
+    @apply max-w-full rounded-lg;
+  }
+
+  .hz-prose figcaption {
+    @apply mt-2 text-xs text-text-secondary;
+  }
+
+  .hz-prose:focus {
+    outline: none;
+  }
+
+  .hz-prose.is-empty::before {
+    content: attr(data-placeholder);
+    @apply pointer-events-none block text-text-secondary;
+  }
+}

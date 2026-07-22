@@ -1,0 +1,65 @@
+# Node.js, Vite, TypeScript e Vitest
+/node_modules/
+/dist/
+/.vite/
+/coverage/
+*.tsbuildinfo
+npm-debug.log*
+
+# Rust e Tauri
+/target/
+/src-tauri/target/
+/src-tauri/gen/schemas/
+**/*.rs.bk
+
+# Dados locais do aplicativo
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite-journal
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+
+# Fixture local de demonstração e benchmark
+/src/seed/cs50-notes.json
+
+# Ambiente, credenciais e assinatura
+.env
+.env.*
+!.env.example
+*.p12
+*.pfx
+*.key
+*.pem
+*.mobileprovision
+.tauri-signing-private-key*
+
+# Temporários e logs
+*.log
+*.dmp
+/.tmp/
+/tmp/
+/temp/
+*.tmp
+*.bak
+*.orig
+*.rej
+*~
+
+# Editores e sistema operacional
+/.idea/
+/.vscode/*
+!/.vscode/extensions.json
+*.suo
+*.sw?
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Metadados locais de agentes
+/.codex/
+/.agents/
+/AGENTS.local.md

@@ -1,0 +1,87 @@
+name: Release Windows
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag existente que será publicada (por exemplo, v0.7.0)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release-windows:
+    name: Gerar instalador NSIS
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+
+    steps:
+      - name: Obter o código e os arquivos LFS
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+          lfs: true
+
+      - name: Validar arquivos LFS
+        run: |
+          git lfs pull
+          git lfs fsck
+
+      - name: Preparar Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Preparar Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Restaurar cache do Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Conferir tag e versões
+        run: npm run release:verify -- "$env:RELEASE_TAG"
+
+      - name: Validar frontend
+        run: |
+          npm run typecheck
+          npm test
+
+      - name: Validar Rust
+        working-directory: src-tauri
+        run: |
+          cargo fmt --all -- --check
+          cargo test
+
+      - name: Compilar e publicar instalador
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ env.RELEASE_TAG }}
+          releaseName: Hyperzettel ${{ env.RELEASE_TAG }}
+          releaseBody: O instalador Windows está disponível nos arquivos desta versão.
+          generateReleaseNotes: true
+          releaseDraft: false
+          prerelease: false
+          args: --bundles nsis
+          retryAttempts: 2
