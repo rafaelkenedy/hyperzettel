@@ -1,7 +1,8 @@
 {
   "name": "hyperzettel",
   "private": true,
-  "version": "0.7.0",
+  "version": "0.7.1",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,6 +12,7 @@
     "release:verify": "node scripts/verify-release-version.mjs",
     "tauri": "tauri",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "typecheck": "tsc -b",
     "test:watch": "vitest"
   },
@@ -24,11 +26,14 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4",
+    "@testing-library/react": "^16.1.0",
     "@types/node": "^24.13.2",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^6.0.3",
+    "@vitest/coverage-v8": "^4.1.10",
     "autoprefixer": "^10.5.4",
+    "axe-core": "^4.10.2",
     "jsdom": "^29.1.1",
     "oxlint": "^1.71.0",
     "postcss": "^8.5.20",

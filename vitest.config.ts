@@ -14,6 +14,14 @@ export default defineConfig({
      * `@vitest-environment jsdom` no topo do arquivo.
      */
     environment: "node",
-    include: ["src/**/*.test.ts"]
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
+    coverage: {
+      // Medição de cobertura. Sem thresholds que quebrem o CI
+      // ainda - defina uma meta (ex.: 70% no tier Pilot) após ver o baseline.
+      provider: "v8",
+      reporter: ["text", "html"],
+      include: ["src/**/*.ts", "src/**/*.tsx"],
+      exclude: ["**/*.test.ts", "src/seed/**", "src/main.tsx"]
+    }
   }
 });
