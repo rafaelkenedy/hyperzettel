@@ -59,3 +59,20 @@ jobs:
           cargo fmt --all -- --check
           cargo clippy --all-targets --all-features -- -D warnings
           cargo test
+
+      - name: Cobertura de testes (frontend)
+        run: npm run test:coverage
+
+      - name: SCA — dependências npm
+        run: npm audit --audit-level=high
+
+      - name: SCA — dependências Rust
+        uses: taiki-e/install-action@cargo-audit
+      - name: cargo audit
+        working-directory: src-tauri
+        run: cargo audit
+
+      - name: Varredura de segredos
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
