@@ -285,7 +285,14 @@ export function NotesProvider({ children }: { children: ReactNode }) {
 
       window.clearTimeout(autosaveRef.current);
       if (dirtyRef.current) await persistNote("draft");
-      if (id === draftRef.current.id && currentNoteRef.current) return;
+      if (id === draftRef.current.id && currentNoteRef.current) {
+        // A nota já está carregada; não recarrega (preserva o cursor), mas
+        // ainda navega para a tela da nota — senão, clicá-la a partir do Início
+        // não fazia nada, porque o `return` pulava o `setView("note")`.
+        setView("note");
+        if (updateHistory) history.pushState({ id }, "", `#${id}`);
+        return;
+      }
 
       const note = await vaultRepository.read(id);
       if (!note) {

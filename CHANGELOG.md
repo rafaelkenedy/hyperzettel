@@ -21,6 +21,10 @@ segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 
 - Armazenamento legado em IndexedDB e a rotina de migração associada. Como não há base instalada, a persistência é exclusivamente o vault de arquivos desde a primeira execução.
 
+### Fixed
+
+- "Retomar de onde parou" (tela inicial): clicar em uma nota que já estava aberta não abria nada — a tela não trocava para o editor. Agora navega para a nota mesmo quando ela já está carregada.
+
 ## [0.7.1] - 2026-07-24
 
 ### Security
