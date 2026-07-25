@@ -37,22 +37,10 @@ import { useAnnouncer } from "@/app/providers/AnnouncerProvider";
 import { useBackup } from "@/app/useBackup";
 import { FormattingToolbar } from "./FormattingToolbar";
 import { IconAction } from "./IconAction";
-import { noteRepository } from "@/infrastructure/noteRepository";
+import { optimizeImageToDataUrl } from "@/infrastructure/imageOptimizer";
 import { formatShortcut } from "@/shared/platform";
+import { slugify } from "@/shared/slug";
 import { KindBadge } from "./KindBadge";
-
-/** Transforma o título em um identificador legível, como no cabeçalho do print. */
-function toSlug(value: string): string {
-  return (
-    value
-      .normalize("NFD")
-      .replace(/[̀-ͯ]/g, "")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 48) || "sem-titulo"
-  );
-}
 
 export function EditorPane({
   onToggleNotes,
@@ -74,7 +62,6 @@ export function EditorPane({
   const titleRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
-  const objectUrlsRef = useRef<Set<string>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const updateEmptyState = useCallback(() => {
@@ -85,49 +72,18 @@ export function EditorPane({
     editor.classList.toggle("is-empty", !hasText && !hasMedia);
   }, []);
 
-  /** Serializa sem os `src` de objeto — o HTML guarda apenas `data-image-id`. */
-  const serialize = useCallback(() => {
-    const editor = editorRef.current;
-    if (!editor) return "";
-    const clone = editor.cloneNode(true) as HTMLElement;
-    clone.querySelectorAll("img[data-image-id]").forEach((image) => image.removeAttribute("src"));
-    return clone.innerHTML.trim();
-  }, []);
+  /** Serializa o corpo direto: as imagens já são data-URI base64 embutidas. */
+  const serialize = useCallback(() => editorRef.current?.innerHTML.trim() ?? "", []);
 
-  const releaseObjectUrls = useCallback(() => {
-    objectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
-    objectUrlsRef.current.clear();
-  }, []);
-
-  /** Reidrata as imagens persistidas, buscando os Blobs no IndexedDB. */
-  const hydrateImages = useCallback(async () => {
-    const editor = editorRef.current;
-    if (!editor) return;
-    const images = Array.from(editor.querySelectorAll<HTMLImageElement>("img[data-image-id]"));
-    await Promise.all(
-      images.map(async (element) => {
-        const stored = await noteRepository.getImage(element.dataset.imageId ?? "");
-        if (!stored?.blob) return;
-        const url = URL.createObjectURL(stored.blob);
-        objectUrlsRef.current.add(url);
-        element.src = url;
-        if (!element.alt) element.alt = stored.name || "Imagem da nota";
-      })
-    );
-  }, []);
-
-  // Repopula o DOM apenas quando outra nota é carregada.
+  // Repopula o DOM apenas quando outra nota é carregada. As imagens já vêm
+  // embutidas como data-URI no HTML, então não há reidratação.
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor) return;
-    releaseObjectUrls();
     editor.innerHTML = notes.draft.content || "";
-    void hydrateImages().then(updateEmptyState);
     updateEmptyState();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notes.loadToken]);
-
-  useEffect(() => releaseObjectUrls, [releaseObjectUrls]);
 
   /**
    * Move o cursor para o início do corpo. `focus()` sozinho não basta num
@@ -183,18 +139,18 @@ export function EditorPane({
       if (!editor) return;
 
       try {
-        const stored = await noteRepository.saveImage(file);
-        const url = URL.createObjectURL(stored.blob);
-        objectUrlsRef.current.add(url);
+        // Otimiza para WebP e embute como data-URI base64: a nota fica
+        // auto-contida em um único arquivo `.html`.
+        const { dataUrl } = await optimizeImageToDataUrl(file);
+        const label = file.name || "Imagem da nota";
 
         const figure = document.createElement("figure");
         figure.contentEditable = "false";
         const image = document.createElement("img");
-        image.src = url;
-        image.alt = stored.name;
-        image.dataset.imageId = stored.id;
+        image.src = dataUrl;
+        image.alt = label;
         const caption = document.createElement("figcaption");
-        caption.textContent = stored.name;
+        caption.textContent = label;
         figure.append(image, caption);
 
         editor.focus();
@@ -216,7 +172,10 @@ export function EditorPane({
         announcer.announce("Imagem adicionada à nota.");
       } catch (error) {
         console.error(error);
-        announcer.announce("Não foi possível adicionar a imagem.");
+        // O otimizador lança mensagens específicas (tipo/tamanho); mostra-as.
+        announcer.announce(
+          error instanceof Error ? error.message : "Não foi possível adicionar a imagem."
+        );
       }
     },
     [announcer, handleInput]
@@ -234,7 +193,7 @@ export function EditorPane({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [notes]);
 
-  const slug = toSlug(notes.draft.title);
+  const slug = slugify(notes.draft.title);
   const saveShortcut = formatShortcut("S");
   const isDraft = notes.draft.status === "draft";
   const canSave = notes.dirty || (isDraft && notes.currentNote !== null);

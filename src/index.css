@@ -81,6 +81,18 @@
     @apply mb-2 mt-6 text-base font-semibold;
   }
 
+  .hz-prose h4 {
+    @apply mb-2 mt-5 text-[15px] font-semibold;
+  }
+
+  .hz-prose h5 {
+    @apply mb-1 mt-4 text-sm font-semibold uppercase tracking-wide text-text-secondary;
+  }
+
+  .hz-prose h6 {
+    @apply mb-1 mt-4 text-xs font-semibold uppercase tracking-wide text-text-tertiary;
+  }
+
   .hz-prose p {
     @apply my-4;
   }
@@ -123,6 +135,27 @@
 
   .hz-prose figcaption {
     @apply mt-2 text-xs text-text-secondary;
+  }
+
+  .hz-prose hr {
+    @apply my-6 border-0 border-t border-border-primary;
+  }
+
+  .hz-prose table {
+    @apply my-5 w-full border-collapse text-sm;
+  }
+
+  .hz-prose caption {
+    @apply mb-1 text-xs text-text-secondary;
+  }
+
+  .hz-prose th,
+  .hz-prose td {
+    @apply border border-border-primary px-2.5 py-1.5 text-left align-top;
+  }
+
+  .hz-prose th {
+    @apply bg-background-secondary font-semibold;
   }
 
   .hz-prose:focus {

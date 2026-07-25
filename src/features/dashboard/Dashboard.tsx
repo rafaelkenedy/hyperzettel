@@ -157,6 +157,9 @@ export function Dashboard() {
   const connections = notes.notes.reduce((total, note) => total + note.connections.length, 0);
   const reviewDue = knowledge.snapshot.metrics.reviewDue;
   const inboxCount = notes.folderCounts.inbox ?? 0;
+  // Primeira execução: sem notas, um painel de métricas zeradas e um "Retomar"
+  // vazio só reforçam o vazio. Nesse estado a home lidera com a ação de criar.
+  const hasNotes = notes.notes.length > 0;
 
   /**
    * O cartão de foco responde ao estado real: revisar vem antes de organizar,
@@ -183,11 +186,17 @@ export function Dashboard() {
           icon: Inbox
         }
       : {
-          eyebrow: "Tudo em dia",
-          title: "Que ideia merece ser registrada?",
-          body: "Nada pendente de revisão nem na caixa de entrada. Um bom momento para escrever algo novo ou revisitar uma conexão.",
-          action: "Escrever nota diária",
-          run: () => void notes.newNoteFromTemplate("daily"),
+          eyebrow: hasNotes ? "Tudo em dia" : "Primeiros passos",
+          title: hasNotes ? "Nada pendente, o espaço é seu" : "Comece pela primeira nota",
+          body: hasNotes
+            ? "Sem revisões nem caixa de entrada esperando. Um bom momento para escrever algo novo ou revisitar uma conexão."
+            : "Capture uma ideia solta ou escolha um modelo abaixo. O Hyperzettel organiza, conecta e ajuda a revisar depois.",
+          // No first-run, a nota em branco é o primeiro passo mais gentil que um
+          // modelo estruturado; os modelos ficam logo abaixo para quem quiser.
+          action: hasNotes ? "Escrever nota diária" : "Escrever livremente",
+          run: hasNotes
+            ? () => void notes.newNoteFromTemplate("daily")
+            : () => void notes.newNote(),
           tone: "bg-[#e8f4ec] text-[#1c6b45]",
           icon: PenLine
         };
@@ -205,12 +214,15 @@ export function Dashboard() {
               {today}
             </span>
             <h1 className="mt-1.5 text-[1.75rem] font-bold leading-[1.15] tracking-[-0.02em]">
-              Que ideia merece sua atenção hoje?
+              {hasNotes ? "Que ideia merece sua atenção hoje?" : "Sua primeira ideia começa aqui"}
             </h1>
           </div>
+          {/* Secundário de propósito: o CTA primário da tela é a ação do
+              cartão de foco, para não competirem dois botões escuros. */}
           <Button
+            variant="secondary"
             size="sm"
-            className="shrink-0 gap-1.5 border-text-primary bg-text-primary text-xs text-background-primary"
+            className="shrink-0 gap-1.5 border-border-tertiary bg-background-primary text-xs"
             onClick={() => void notes.newNote()}
           >
             <PenLine className="size-3.5" strokeWidth={2} />
@@ -239,18 +251,23 @@ export function Dashboard() {
                 {focus.action}
                 <ArrowRight className="size-3.5" strokeWidth={2} />
               </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                className="border-border-tertiary bg-background-primary text-xs"
-                onClick={() => void notes.newNote()}
-              >
-                Escrever livremente
-              </Button>
+              {/* No first-run o CTA primário já é a nota em branco, então o
+                  "Escrever livremente" secundário seria redundante. */}
+              {hasNotes ? (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="border-border-tertiary bg-background-primary text-xs"
+                  onClick={() => void notes.newNote()}
+                >
+                  Escrever livremente
+                </Button>
+              ) : null}
             </div>
           </div>
         </article>
 
+        {hasNotes ? (
         <section aria-label="Resumo" className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard
             icon={FileText}
@@ -291,7 +308,9 @@ export function Dashboard() {
             onClick={() => navigation.toggleMap("review")}
           />
         </section>
+        ) : null}
 
+        {hasNotes ? (
         <section className="mt-8">
           <div className="flex items-baseline justify-between">
             <h2 className="text-md font-bold tracking-[-0.01em]">Retomar de onde parou</h2>
@@ -340,6 +359,7 @@ export function Dashboard() {
             </div>
           )}
         </section>
+        ) : null}
 
         <section className="mt-8">
           <h2 className="text-md font-bold tracking-[-0.01em]">Comece com uma estrutura</h2>
@@ -360,7 +380,7 @@ export function Dashboard() {
                     <h3 className="text-2xs font-medium uppercase tracking-[0.08em] text-text-secondary">
                       {TEMPLATE_GROUPS[group].label}
                     </h3>
-                    <span className="text-2xs text-text-secondary/70">
+                    <span className="text-2xs text-text-secondary">
                       {TEMPLATE_GROUPS[group].hint}
                     </span>
                   </div>

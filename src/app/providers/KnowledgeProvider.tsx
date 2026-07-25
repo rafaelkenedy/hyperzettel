@@ -26,7 +26,7 @@ import {
   type Quality
 } from "@/features/knowledge";
 import type { Note } from "@/domain/notes";
-import { noteRepository } from "@/infrastructure/noteRepository";
+import { vaultRepository } from "@/infrastructure/vaultRepository";
 import { useAnnouncer } from "@/app/providers/AnnouncerProvider";
 import { useNotes } from "@/app/providers/NotesProvider";
 
@@ -67,7 +67,7 @@ export function KnowledgeProvider({ children }: { children: ReactNode }) {
   const persist = useCallback(async () => {
     if (!hydratedRef.current) return;
     try {
-      await noteRepository.saveKnowledge(model.exportState());
+      await vaultRepository.setRetention(model.exportState());
     } catch (error) {
       console.error(error);
     }
@@ -79,7 +79,7 @@ export function KnowledgeProvider({ children }: { children: ReactNode }) {
 
     (async () => {
       try {
-        const stored = await noteRepository.loadKnowledge();
+        const stored = await vaultRepository.getRetention();
         if (cancelled) return;
         if (stored) model.importState(stored);
       } catch (error) {

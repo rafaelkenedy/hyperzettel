@@ -305,9 +305,11 @@ export function NavigationRail() {
                   />
                   <span className="truncate">Processar</span>
                 </SidebarMenuButton>
-                <SidebarMenuBadge className={navBadgeClass(processActive)}>
-                  {notes.processQueue.length}
-                </SidebarMenuBadge>
+                {notes.processQueue.length > 0 ? (
+                  <SidebarMenuBadge className={navBadgeClass(processActive)}>
+                    {notes.processQueue.length}
+                  </SidebarMenuBadge>
+                ) : null}
               </SidebarMenuItem>
               <NavRow
                 icon={FileStack}

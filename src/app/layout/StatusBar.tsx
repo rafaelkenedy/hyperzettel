@@ -55,7 +55,7 @@ export function StatusBar() {
     <footer className="flex h-8 shrink-0 items-center gap-3 border-t border-border-primary bg-hz-rail px-3 text-xs text-text-secondary">
       <span className="flex items-center gap-1.5">
         <Database className="size-3" strokeWidth={1.75} />
-        hyperzettel · IndexedDB local
+        hyperzettel · vault local
       </span>
 
       <span className="text-border-tertiary">|</span>

@@ -8,6 +8,7 @@ use rusqlite::{Connection, Transaction};
 use thiserror::Error;
 
 const RELATIONS_MIGRATION: &str = include_str!("migrations/relations.sql");
+const NOTE_INDEX_MIGRATION: &str = include_str!("migrations/note_index.sql");
 
 #[derive(Debug, Error)]
 pub enum DatabaseError {
@@ -43,6 +44,7 @@ impl Database {
             "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;",
         )?;
         connection.execute_batch(RELATIONS_MIGRATION)?;
+        connection.execute_batch(NOTE_INDEX_MIGRATION)?;
         Ok(Self {
             connection: Arc::new(Mutex::new(connection)),
         })

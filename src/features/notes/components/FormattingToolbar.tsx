@@ -15,18 +15,29 @@ import {
   Heading1,
   Heading2,
   Heading3,
+  Heading4,
+  Heading5,
+  Heading6,
   ImagePlus,
   Italic,
   Link as LinkIcon,
   List,
   ListOrdered,
+  Minus,
   Pilcrow,
   Quote,
   Strikethrough,
+  Table as TableIcon,
   Underline
 } from "lucide-react";
 
 import { IconAction } from "./IconAction";
+
+/** Tabela inicial 2 colunas × cabeçalho + 1 linha; o `<p>` final dá onde
+ *  continuar escrevendo depois dela. As tags passam pela allowlist. */
+const STARTER_TABLE =
+  "<table><thead><tr><th>Título</th><th>Título</th></tr></thead>" +
+  "<tbody><tr><td>Célula</td><td>Célula</td></tr></tbody></table><p><br></p>";
 
 export function FormattingToolbar({
   onCommand,
@@ -45,6 +56,9 @@ export function FormattingToolbar({
       <IconAction icon={Heading1} label="Título 1" onClick={() => onCommand("formatBlock", "h1")} />
       <IconAction icon={Heading2} label="Título 2" onClick={() => onCommand("formatBlock", "h2")} />
       <IconAction icon={Heading3} label="Título 3" onClick={() => onCommand("formatBlock", "h3")} />
+      <IconAction icon={Heading4} label="Título 4" onClick={() => onCommand("formatBlock", "h4")} />
+      <IconAction icon={Heading5} label="Título 5" onClick={() => onCommand("formatBlock", "h5")} />
+      <IconAction icon={Heading6} label="Título 6" onClick={() => onCommand("formatBlock", "h6")} />
       {divider}
       <IconAction icon={Bold} label="Negrito" onClick={() => onCommand("bold")} />
       <IconAction icon={Italic} label="Itálico" onClick={() => onCommand("italic")} />
@@ -65,6 +79,16 @@ export function FormattingToolbar({
         icon={ListOrdered}
         label="Lista numerada"
         onClick={() => onCommand("insertOrderedList")}
+      />
+      <IconAction
+        icon={TableIcon}
+        label="Inserir tabela"
+        onClick={() => onCommand("insertHTML", STARTER_TABLE)}
+      />
+      <IconAction
+        icon={Minus}
+        label="Linha divisória"
+        onClick={() => onCommand("insertHorizontalRule")}
       />
       {divider}
       <IconAction

@@ -4,37 +4,35 @@
  * Compatibilidade de backup entre as versões do app.
  *
  * A promessa é que um arquivo gerado por qualquer versão anterior entra sem
- * perda. Estes testes são o que sustenta essa afirmação.
+ * perda. No modelo de arquivo as imagens de backups v2 antigos são
+ * embutidas em base64 na importação; estes testes sustentam as duas coisas.
  */
 
 import { describe, expect, test } from "vitest";
 
 import { connectionIds, type Note } from "@/domain/notes";
 import type { KnowledgeState } from "@/features/knowledge";
-import type { NoteRepository, StoredImage } from "@/infrastructure/noteRepository";
+import { noteFileName, serializeNoteToHtmlDocument } from "@/shared/noteDocument";
+import type { VaultRepository } from "@/infrastructure/vaultRepository";
 import { createBackupService } from "./backupService";
 
-/** Repositório em memória: o serviço recebe a porta por parâmetro. */
-function fakeRepository() {
-  const notes = new Map<string, Note>();
-  const images = new Map<string, StoredImage>();
+/** Vault falso em memória: o serviço recebe a porta por parâmetro. */
+function fakeVault() {
+  const docs = new Map<string, string>();
+  let retention: unknown = null;
 
-  return {
-    notes,
-    images,
-    repository: {
-      putNote: async (note: Note) => {
-        notes.set(note.id, note);
-        return note.id;
-      },
-      putImage: async (image: StoredImage) => {
-        images.set(image.id, image);
-        return image.id;
-      },
-      getAllNotes: async () => [...notes.values()],
-      getAllImages: async () => [...images.values()]
-    } as unknown as NoteRepository
-  };
+  const vault = {
+    save: async (note: Note) => {
+      docs.set(noteFileName(note), serializeNoteToHtmlDocument(note));
+    },
+    readAllDocuments: async () =>
+      [...docs.entries()].map(([fileName, html]) => ({ fileName, html })),
+    setRetention: async (state: unknown) => {
+      retention = state;
+    }
+  } as unknown as VaultRepository;
+
+  return { docs, vault, retention: () => retention };
 }
 
 const emptyKnowledge = (): KnowledgeState => ({ version: 1, notes: {}, edges: {} });
@@ -44,8 +42,8 @@ function backupFile(payload: unknown): File {
 }
 
 function createService(exportKnowledge = emptyKnowledge) {
-  const { repository, notes } = fakeRepository();
-  return { service: createBackupService({ repository, exportKnowledge }), notes };
+  const { vault, docs, retention } = fakeVault();
+  return { service: createBackupService({ vault, exportKnowledge }), docs, retention };
 }
 
 describe("importação de formatos antigos", () => {
@@ -114,12 +112,29 @@ describe("importação de formatos antigos", () => {
     expect(result!.knowledge).toEqual(knowledge);
   });
 
-  test("grava as notas importadas no repositório", async () => {
-    const { service, notes } = createService();
+  test("grava as notas importadas no vault", async () => {
+    const { service, docs } = createService();
 
     await service.importBackup(backupFile({ notes: [{ id: "a" }, { id: "b" }] }));
 
-    expect(notes.size).toBe(2);
+    expect(docs.size).toBe(2);
+  });
+
+  test("embute imagens de backup v2 (data-image-id) como base64", async () => {
+    const { service, docs } = createService();
+    const image = "data:image/webp;base64,UklGRhoAAABXRUJQ";
+
+    await service.importBackup(
+      backupFile({
+        format: "hyperzettelkasten",
+        version: 2,
+        notes: [{ id: "a", title: "Com imagem", content: '<p><img data-image-id="x"></p>' }],
+        images: [{ id: "x", data: image }]
+      })
+    );
+
+    expect(docs.get("a.html")).toContain(image);
+    expect(docs.get("a.html")).not.toContain("data-image-id");
   });
 });
 

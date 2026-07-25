@@ -9,7 +9,7 @@
 import { useCallback, useMemo } from "react";
 
 import { createBackupService } from "@/application/backupService";
-import { noteRepository } from "@/infrastructure/noteRepository";
+import { vaultRepository } from "@/infrastructure/vaultRepository";
 import { useAnnouncer } from "@/app/providers/AnnouncerProvider";
 import { useKnowledge } from "@/app/providers/KnowledgeProvider";
 import { useNotes } from "@/app/providers/NotesProvider";
@@ -20,7 +20,7 @@ export function useBackup() {
   const { exportState, mergeImported } = useKnowledge();
 
   const service = useMemo(
-    () => createBackupService({ repository: noteRepository, exportKnowledge: exportState }),
+    () => createBackupService({ vault: vaultRepository, exportKnowledge: exportState }),
     [exportState]
   );
 

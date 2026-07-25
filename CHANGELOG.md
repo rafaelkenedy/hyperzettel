@@ -4,6 +4,23 @@ As mudanças notáveis do Hyperzettel são registradas neste arquivo. O formato
 segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [0.8.0] - 2026-07-24
+
+### Changed
+
+- **Persistência das notas como arquivos**: cada nota agora é um arquivo `.html` auto-contido num vault em disco (fonte da verdade), em vez de ficar no IndexedDB do webview (ADR 0006). Os arquivos são portáteis, versionáveis e abríveis em qualquer navegador.
+- As **imagens** passam a ser embutidas em base64 no próprio HTML da nota (auto-contido), em vez de um armazenamento separado.
+- O **SQLite nativo** vira o índice derivado obrigatório (metadados + busca FTS5 + conexões + retenção), reconstruível a partir do vault; a busca deixa de reparsear HTML a cada tecla.
+
+### Added
+
+- Reconciliação na inicialização: se o índice não reflete os arquivos do vault (vault sincronizado para outra máquina ou índice apagado), ele é reconstruído a partir dos arquivos — a fonte da verdade.
+- Editor: tabelas, títulos H4–H6 e linha divisória (`<hr>`) na barra de formatação, com a allowlist do sanitizer ampliada.
+
+### Removed
+
+- Armazenamento legado em IndexedDB e a rotina de migração associada. Como não há base instalada, a persistência é exclusivamente o vault de arquivos desde a primeira execução.
+
 ## [0.7.1] - 2026-07-24
 
 ### Security

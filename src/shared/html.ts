@@ -5,8 +5,9 @@
  */
 
 const ALLOWED_NOTE_TAGS = new Set([
-  "A", "B", "BLOCKQUOTE", "BR", "CODE", "DIV", "EM", "FIGCAPTION", "FIGURE",
-  "H1", "H2", "H3", "I", "IMG", "LI", "OL", "P", "PRE", "S", "SPAN", "STRONG", "U", "UL"
+  "A", "B", "BLOCKQUOTE", "BR", "CAPTION", "CODE", "DIV", "EM", "FIGCAPTION", "FIGURE",
+  "H1", "H2", "H3", "H4", "H5", "H6", "HR", "I", "IMG", "LI", "OL", "P", "PRE", "S",
+  "SPAN", "STRONG", "TABLE", "TBODY", "TD", "TH", "THEAD", "TR", "U", "UL"
 ]);
 
 const REMOVED_NOTE_TAGS = new Set([
@@ -31,7 +32,7 @@ export function sanitizeNoteContent(value: unknown): string {
       element.tagName === "A"
         ? new Set(["href", "target", "title"])
         : element.tagName === "IMG"
-          ? new Set(["alt", "data-image-id"])
+          ? new Set(["alt", "src"])
           : new Set<string>();
 
     Array.from(element.attributes).forEach((attribute) => {
@@ -46,8 +47,13 @@ export function sanitizeNoteContent(value: unknown): string {
       }
     }
     if (element.tagName === "IMG") {
-      element.removeAttribute("src");
-      if (!(element as HTMLElement).dataset.imageId) element.remove();
+      // Modelo auto-contido: a imagem é embutida como data-URI base64 no
+      // próprio HTML. Só rasters seguros — `data:image/svg+xml` é vetor de
+      // script e URLs externas (`http:`) não são persistidas na nota.
+      const src = element.getAttribute("src") ?? "";
+      if (!/^data:image\/(?:png|jpe?g|webp|gif|avif);base64,/i.test(src)) {
+        element.remove();
+      }
     }
   });
 
@@ -58,7 +64,9 @@ export function toPlainText(html: string): string {
   const container = document.createElement("div");
   container.innerHTML = html || "";
   container
-    .querySelectorAll("br, p, div, h1, h2, h3, li, blockquote, pre, figcaption")
+    .querySelectorAll(
+      "br, p, div, h1, h2, h3, h4, h5, h6, li, blockquote, pre, figcaption, hr, caption, tr, th, td"
+    )
     .forEach((element) => element.append(" "));
   return (container.textContent ?? "").replace(/\s+/g, " ").trim();
 }

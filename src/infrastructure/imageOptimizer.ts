@@ -2,8 +2,8 @@
  * Otimização de imagem antes de persistir.
  * Porte de `src/infrastructure/image-optimizer.js`.
  *
- * Sem isto, uma foto de celular de 8 MB ia inteira para o IndexedDB e para
- * dentro do backup JSON em base64.
+ * Sem isto, uma foto de celular de 8 MB entraria inteira, em base64, no HTML
+ * auto-contido da nota. Redimensiona e recodifica em WebP antes.
  */
 
 const SUPPORTED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
@@ -46,59 +46,59 @@ async function decodeImage(file: File): Promise<DecodedImage> {
   }
 }
 
-function dataUrlToBlob(dataURL: string): Blob {
-  const [header, encoded] = dataURL.split(",", 2);
-  const type = header.match(/^data:([^;]+)/i)?.[1] ?? "image/webp";
-  const binary = atob(encoded);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return new Blob([bytes], { type });
-}
-
-export interface OptimizedImage {
-  blob: Blob;
+export interface OptimizedDataUrl {
+  dataUrl: string;
   width: number;
   height: number;
 }
 
-/**
- * Reduz o maior lado para 1600 px e recodifica em WebP. Se ainda passar do
- * teto, tenta uma qualidade menor antes de desistir.
- */
-export async function optimizeImage(file: File): Promise<OptimizedImage> {
+function assertEncodable(file: File): void {
   if (!SUPPORTED_TYPES.has(file.type)) {
-    throw new Error("Use uma imagem JPG, PNG ou WebP.");
+    throw new Error(`Tipo "${file.type}" não suportado. Use JPG, PNG ou WebP.`);
   }
   if (file.size > MAX_SOURCE_BYTES) {
-    throw new Error("A imagem original deve ter no máximo 12 MB.");
+    throw new Error(
+      `Imagem de ${(file.size / 1024 / 1024).toFixed(1)} MB excede o limite de 12 MB.`
+    );
   }
+}
 
+/** Desenha a fonte no tamanho pedido e recodifica em WebP, baixando a qualidade
+ *  uma vez se o resultado passar do teto. */
+function renderWebpDataUrl(source: CanvasImageSource, width: number, height: number): string {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d", { alpha: true });
+  if (!context) throw new Error("Não foi possível preparar a imagem.");
+  context.drawImage(source, 0, 0, width, height);
+
+  let dataUrl = canvas.toDataURL("image/webp", 0.82);
+  if (dataUrl.length > MAX_ENCODED_LENGTH) dataUrl = canvas.toDataURL("image/webp", 0.64);
+  if (dataUrl.length > MAX_ENCODED_LENGTH) {
+    throw new Error("A imagem ainda ficou grande demais após a otimização.");
+  }
+  return dataUrl;
+}
+
+/**
+ * Reduz o maior lado para 1600 px e recodifica em WebP, devolvendo o data-URI.
+ * É a forma usada no modelo auto-contido: a imagem entra embutida
+ * no HTML da nota, sem armazenamento separado.
+ *
+ * @example (await optimizeImageToDataUrl(file)).dataUrl // "data:image/webp;base64,…"
+ */
+export async function optimizeImageToDataUrl(file: File): Promise<OptimizedDataUrl> {
+  assertEncodable(file);
   const decoded = await decodeImage(file);
   try {
     if (!decoded.width || !decoded.height) {
       throw new Error("Não foi possível ler as dimensões da imagem.");
     }
-
     const scale = Math.min(1, MAX_EDGE / Math.max(decoded.width, decoded.height));
     const width = Math.max(1, Math.round(decoded.width * scale));
     const height = Math.max(1, Math.round(decoded.height * scale));
-
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const context = canvas.getContext("2d", { alpha: true });
-    if (!context) throw new Error("Não foi possível preparar a imagem.");
-    context.drawImage(decoded.source, 0, 0, width, height);
-
-    let dataURL = canvas.toDataURL("image/webp", 0.82);
-    if (dataURL.length > MAX_ENCODED_LENGTH) dataURL = canvas.toDataURL("image/webp", 0.64);
-    if (dataURL.length > MAX_ENCODED_LENGTH) {
-      throw new Error("A imagem ainda ficou grande demais após a otimização.");
-    }
-
-    return { blob: dataUrlToBlob(dataURL), width, height };
+    return { dataUrl: renderWebpDataUrl(decoded.source, width, height), width, height };
   } finally {
     decoded.release();
   }

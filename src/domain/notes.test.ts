@@ -17,6 +17,7 @@ import {
   createNoteRecord,
   filterAndSort,
   findRelations,
+  findTodaysDaily,
   hasMeaningfulContent,
   matchesScope,
   mergeNote,
@@ -30,6 +31,24 @@ import {
 
 /** Texto puro sem DOM: o domínio recebe essa função por parâmetro. */
 const plain = (html: string) => html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+
+describe("findTodaysDaily", () => {
+  const daily = (title: string): Note => createNoteRecord({ id: title, title, template: "daily" });
+
+  test("encontra a diária de hoje pelo título ISO", () => {
+    const notes = [daily("2026-07-23"), daily("2026-07-24")];
+    expect(findTodaysDaily(notes, "2026-07-24")?.id).toBe("2026-07-24");
+  });
+
+  test("ignora outros templates com o mesmo título (evita falso positivo)", () => {
+    const notes = [createNoteRecord({ id: "x", title: "2026-07-24", template: "concept" })];
+    expect(findTodaysDaily(notes, "2026-07-24")).toBeUndefined();
+  });
+
+  test("sem a diária de hoje, retorna undefined (então uma nova é criada)", () => {
+    expect(findTodaysDaily([daily("2026-07-23")], "2026-07-24")).toBeUndefined();
+  });
+});
 
 describe("resolvePersistedStatus", () => {
   test("autosave preserva uma nota já concluída", () => {

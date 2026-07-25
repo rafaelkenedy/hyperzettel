@@ -26,9 +26,9 @@ import {
   createNoteRecord,
   filterAndSort,
   findRelations,
+  findTodaysDaily,
   hasMeaningfulContent,
   mergeNote,
-  needsMigration,
   resolvePersistedStatus,
   type Relation,
   type FolderId,
@@ -39,7 +39,7 @@ import {
 } from "@/domain/notes";
 import { findTemplate } from "@/domain/templates";
 import { toPlainText, type NoteSection } from "@/shared/html";
-import { noteRepository } from "@/infrastructure/noteRepository";
+import { vaultRepository, type NoteIndexRow } from "@/infrastructure/vaultRepository";
 import { useAnnouncer } from "@/app/providers/AnnouncerProvider";
 import { useNavigation } from "@/app/providers/NavigationProvider";
 import {
@@ -82,6 +82,31 @@ function emptyDraft(id = createId()): Note {
     template: "blank"
   });
   return { ...record, title: "" };
+}
+
+/**
+ * Converte uma linha do índice numa nota "leve": o corpo guarda só o texto puro
+ * (para preview e contagem), sem o HTML pesado. O conteúdo completo é carregado
+ * sob demanda ao abrir a nota.
+ */
+function toListNote(row: NoteIndexRow): Note {
+  return createNoteRecord({
+    id: row.id,
+    title: row.title,
+    content: row.plainText,
+    folder: row.folder,
+    kind: row.kind,
+    template: row.template,
+    status: row.status,
+    connections: row.connections,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
+  });
+}
+
+/** Versão leve de uma nota já carregada, para guardar na lista sem o HTML. */
+function lightNote(note: Note): Note {
+  return { ...note, content: toPlainText(note.content) };
 }
 
 export interface NotesStore {
@@ -146,6 +171,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const [saving, setSaving] = useState(false);
   const [ready, setReady] = useState(false);
   const [loadToken, setLoadToken] = useState(0);
+  /** Ids que casam com a busca FTS; `null` quando não há busca ativa. */
+  const [searchIds, setSearchIds] = useState<Set<string> | null>(null);
 
   // Refs espelham o estado para que timers e handlers de evento leiam o
   // valor atual sem precisar ser recriados a cada render.
@@ -156,11 +183,13 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const revisionRef = useRef(0);
   const autosaveRef = useRef<number>(0);
   const createdInSessionRef = useRef(true);
+  const notesRef = useRef(notes);
 
   draftRef.current = draft;
   currentNoteRef.current = currentNote;
   dirtyRef.current = dirty;
   savingRef.current = saving;
+  notesRef.current = notes;
 
   const persistNote = useCallback(
     async (
@@ -206,11 +235,11 @@ export function NotesProvider({ children }: { children: ReactNode }) {
           updatedAt: now
         });
 
-        await noteRepository.putNote(note);
+        await vaultRepository.save(note);
         setCurrentNote(note);
         currentNoteRef.current = note;
         createdInSessionRef.current = false;
-        setNotes((previous) => mergeNote(previous, note));
+        setNotes((previous) => mergeNote(previous, lightNote(note)));
         setDraft((previous) => ({ ...previous, ...note, title: previous.title }));
 
         if (savedRevision === revisionRef.current) {
@@ -258,7 +287,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       if (dirtyRef.current) await persistNote("draft");
       if (id === draftRef.current.id && currentNoteRef.current) return;
 
-      const note = await noteRepository.getNote(id);
+      const note = await vaultRepository.read(id);
       if (!note) {
         announce("Esta nota não está mais disponível.");
         return;
@@ -404,7 +433,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     window.clearTimeout(autosaveRef.current);
     const id = draftRef.current.id;
     if (!createdInSessionRef.current || currentNoteRef.current) {
-      await noteRepository.deleteNote(id);
+      await vaultRepository.remove(id);
       await removeNoteFromKnowledgeIndex(id);
     }
     setNotes((previous) => previous.filter((note) => note.id !== id));
@@ -419,6 +448,18 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       if (dirtyRef.current) await persistNote("draft");
 
       const template = findTemplate(templateId);
+
+      // A nota diária é uma por dia: se a de hoje já existe, abre em vez de
+      // duplicar (A1 do design review).
+      if (templateId === "daily" && template.title) {
+        const existing = findTodaysDaily(notesRef.current, template.title());
+        if (existing) {
+          await openNote(existing.id);
+          announce("Abrindo a nota diária de hoje.");
+          return;
+        }
+      }
+
       const fresh = createNoteRecord({
         id: createId(),
         title: template.title?.() ?? "",
@@ -443,7 +484,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       markDirty();
       announce(`Modelo aplicado: ${template.name}.`);
     },
-    [announce, markDirty, persistNote, setView]
+    [announce, markDirty, openNote, persistNote, setView]
   );
 
   /**
@@ -452,7 +493,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
    * necessariamente a que está aberta no editor.
    */
   const patchNote = useCallback(async (id: string, patch: Partial<Note>) => {
-    const stored = await noteRepository.getNote(id);
+    const stored = await vaultRepository.read(id);
     if (!stored) return;
 
     const updated = createNoteRecord({
@@ -461,9 +502,9 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       status: "saved",
       updatedAt: new Date().toISOString()
     });
-    await noteRepository.putNote(updated);
+    await vaultRepository.save(updated);
     enqueueNoteIndexing(updated);
-    setNotes((previous) => mergeNote(previous, updated));
+    setNotes((previous) => mergeNote(previous, lightNote(updated)));
 
     // Se a nota alterada é a que está aberta, o rascunho acompanha.
     if (draftRef.current.id === id) {
@@ -475,7 +516,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
 
   const removeNote = useCallback(
     async (id: string) => {
-      await noteRepository.deleteNote(id);
+      await vaultRepository.remove(id);
       await removeNoteFromKnowledgeIndex(id);
       setNotes((previous) => previous.filter((note) => note.id !== id));
       if (draftRef.current.id === id) await newNote();
@@ -490,7 +531,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
    */
   const splitNote = useCallback(
     async (id: string, sections: NoteSection[]) => {
-      const source = await noteRepository.getNote(id);
+      const source = await vaultRepository.read(id);
       if (!source || !sections.length) return;
 
       const created = sections.map((section) =>
@@ -506,9 +547,9 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         })
       );
 
-      await noteRepository.putNotes(created);
+      await vaultRepository.saveMany(created);
       created.forEach(enqueueNoteIndexing);
-      setNotes((previous) => created.reduce(mergeNote, previous));
+      setNotes((previous) => created.map(lightNote).reduce(mergeNote, previous));
       announce(
         `${created.length} ${created.length === 1 ? "nota criada" : "notas criadas"} a partir das seções.`
       );
@@ -518,7 +559,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   );
 
   const reload = useCallback(async () => {
-    const all = await noteRepository.getAllNotes();
+    const all = (await vaultRepository.list()).map(toListNote);
     setNotes(all);
     return all;
   }, []);
@@ -542,31 +583,21 @@ export function NotesProvider({ children }: { children: ReactNode }) {
 
     (async () => {
       try {
-        await noteRepository.openDatabase();
-        const stored = await noteRepository.getAllNotes();
+        // Reconcilia o índice com os arquivos do vault (a fonte da verdade): se
+        // o índice está vazio mas há arquivos — vault sincronizado para outra
+        // máquina, ou índice apagado —, reconstrói a partir deles.
+        if ((await vaultRepository.list()).length === 0) {
+          await vaultRepository.reindexFromVault();
+        }
+        const all = (await vaultRepository.list()).map(toListNote);
         if (cancelled) return;
-
-        /*
-         * Migração para o contrato atual: notas gravadas antes do ciclo de
-         * vida não têm `kind`, e as conexões eram só ids. `createNoteRecord`
-         * preenche os dois preservando o que já existia; só as alteradas
-         * voltam para o disco.
-         */
-        const migrated: Note[] = [];
-        const all = stored.map((note) => {
-          if (!needsMigration(note)) return note;
-          const updated = createNoteRecord(note);
-          migrated.push(updated);
-          return updated;
-        });
-        if (migrated.length) await noteRepository.putNotes(migrated);
 
         setNotes(all);
 
         const hashId = location.hash.replace(/^#/, "");
         const targetId =
           hashId && hashId !== "novo" ? hashId : (readSessionDraftId() ?? draftRef.current.id);
-        const restored = await noteRepository.getNote(targetId);
+        const restored = await vaultRepository.read(targetId);
 
         if (!cancelled && restored) {
           setCurrentNote(restored);
@@ -616,6 +647,26 @@ export function NotesProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => () => window.clearTimeout(autosaveRef.current), []);
 
+  // Busca no índice FTS (SQLite), com debounce. `searchIds = null` desliga o
+  // filtro; caso contrário a lista mostra só os ids que casaram.
+  useEffect(() => {
+    const term = query.trim();
+    if (!term) {
+      setSearchIds(null);
+      return;
+    }
+    let active = true;
+    const handle = window.setTimeout(() => {
+      void vaultRepository.search(term).then((ids) => {
+        if (active) setSearchIds(new Set(ids));
+      });
+    }, 150);
+    return () => {
+      active = false;
+      window.clearTimeout(handle);
+    };
+  }, [query]);
+
   /**
    * A lista precisa mostrar o rascunho em edição junto das notas gravadas,
    * para que título e pasta reflitam a digitação em tempo real.
@@ -629,10 +680,12 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     return mergeNote(notes, draft);
   }, [notes, draft, currentNote]);
 
-  const visibleNotes = useMemo(
-    () => filterAndSort(notesWithDraft, { scope, query, toPlainText }),
-    [notesWithDraft, scope, query]
-  );
+  const visibleNotes = useMemo(() => {
+    // Escopo + ordenação em memória; a busca textual vem do índice FTS.
+    const scoped = filterAndSort(notesWithDraft, { scope });
+    if (searchIds === null) return scoped;
+    return scoped.filter((note) => searchIds.has(note.id));
+  }, [notesWithDraft, scope, searchIds]);
 
   const connectionCounts = useMemo(
     () => createConnectionCounts(notesWithDraft),

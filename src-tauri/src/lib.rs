@@ -3,7 +3,9 @@
 pub mod commands;
 pub mod database;
 pub mod knowledge;
+pub mod note_index;
 pub mod state;
+pub mod vault;
 
 #[path = "../model_resource_manifest.rs"]
 pub(crate) mod model_resource_manifest;
@@ -13,6 +15,11 @@ use commands::relations::{
     rebuild_knowledge_relations, reject_automatic_relation, remove_note_from_knowledge_index,
     restore_automatic_relation, resume_relation_indexing, sync_knowledge_notes,
 };
+use commands::notes::{
+    delete_note, get_retention_state, list_notes, rebuild_note_index, save_note, search_notes,
+    set_retention_state,
+};
+use commands::vault::{read_all_note_files, read_note_file};
 use state::build_app_state;
 use tauri::Manager;
 
@@ -50,6 +57,15 @@ pub fn run() {
             reject_automatic_relation,
             restore_automatic_relation,
             remove_note_from_knowledge_index,
+            read_all_note_files,
+            read_note_file,
+            save_note,
+            delete_note,
+            list_notes,
+            search_notes,
+            rebuild_note_index,
+            get_retention_state,
+            set_retention_state,
         ])
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {

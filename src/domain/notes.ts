@@ -254,6 +254,17 @@ export function mergeNote(notes: Note[], note: Note): Note[] {
   return result;
 }
 
+/**
+ * A nota diária de hoje, se já existir. Identificada pelo template `daily` e
+ * pelo título no formato ISO curto que o modelo gera (AAAA-MM-DD). Manter a
+ * regra pura permite testá-la e evita duplicar diárias (A1 do design review).
+ *
+ * @example findTodaysDaily(notes, "2026-07-24")?.id
+ */
+export function findTodaysDaily(notes: Note[], todayTitle: string): Note | undefined {
+  return notes.find((note) => note.template === "daily" && note.title === todayTitle);
+}
+
 export type FolderCounts = Record<string, number>;
 
 export function countByFolder(notes: Note[]): FolderCounts {
