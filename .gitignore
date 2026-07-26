@@ -25,6 +25,7 @@ npm-debug.log*
 
 # Fixture local de demonstração e benchmark
 /src/seed/cs50-notes.json
+/.benchmark-vault/
 
 # Ambiente, credenciais e assinatura
 .env
