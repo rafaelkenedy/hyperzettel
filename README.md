@@ -63,15 +63,17 @@ O runtime da aplicação não lê variáveis de ambiente. As variáveis encontra
 | --- | --- | --- |
 | `GITHUB_TOKEN` | gerado pelo GitHub Actions | Autoriza o workflow a criar a Release e enviar o instalador. |
 | `HYPERZETTEL_BENCHMARK_BATCH` | não definida | Comunicação interna entre os processos do benchmark opt-in; não é usada na execução normal. |
+| `HYPERZETTEL_RETRIEVAL_FIXTURE` | `src/seed/cs50-notes.json` | Caminho opcional para um backup JSON ou vault HTML usado somente pelo benchmark de recuperação. |
 
 ## Como funciona
 
 ```mermaid
 flowchart LR
-    UI["Interface React"] --> NOTES["Notas, imagens e revisão\nIndexedDB"]
+    UI["Interface React"] -->|comandos Tauri| VAULT["Notas e imagens\nHTML auto-contido no vault"]
+    UI -->|comandos Tauri| INDEX["Metadados, busca e revisão\nSQLite derivado"]
     UI -->|comandos Tauri| SERVICE["Serviço Rust de relações"]
     SERVICE --> MODEL["EmbeddingGemma Q4\nFastEmbed + ONNX Runtime"]
-    SERVICE --> DB["Embeddings, relações e espelho de notas\nSQLite"]
+    SERVICE --> INDEX
 ```
 
 Cada nota combina três dimensões distintas:
@@ -81,6 +83,17 @@ Cada nota combina três dimensões distintas:
 - **modelo:** uma das dez estruturas de conteúdo, como conceito, projeto, reunião ou diário.
 
 O editor persiste conteúdo significativo 700 ms após a última alteração. Esse autosave mantém a nota como rascunho. `Ctrl+S` ou o botão de salvar marca a nota como salva. Conexões manuais guardam o identificador da outra nota e um motivo textual opcional.
+
+Cada nota criada pelo aplicativo recebe um arquivo legível como
+`20260726-194530--relacoes-semanticas--a1b2c3d4.html`: timestamp UTC de criação,
+título normalizado e oito caracteres do ID interno. O nome permanece estável
+depois do primeiro salvamento, pode ser alterado externamente e não define a
+identidade da nota; essa identidade continua no metadado `hz:id` do HTML.
+Arquivos criados manualmente podem usar qualquer nome simples terminado em
+`.html` (inclusive `.HTML`). Na inicialização, o aplicativo compara nome e
+SHA-256 com o índice: edições, renomes, inclusões e remoções externas provocam
+reindexação. Arquivos sem `hz:id` ou com um ID duplicado são informados e não
+entram no índice até serem corrigidos.
 
 Na aplicação Tauri, o frontend sincroniza as notas salvas com um serviço Rust. O serviço valida e carrega o EmbeddingGemma Q4 empacotado, gera embeddings localmente e grava o resultado em `hyperzettel.sqlite`. A configuração atual considera similaridade mínima de `0,68` e mantém até cinco relações automáticas por nota. A interface permite rejeitar, restaurar, pausar, continuar ou tentar novamente essa análise.
 
@@ -137,7 +150,7 @@ src/
   application/     importação e exportação de backup
   domain/          regras de notas, conexões e modelos
   features/        dashboard, notas, processamento e conhecimento
-  infrastructure/  IndexedDB e otimização de imagens
+  infrastructure/  fronteira IPC do vault e índice derivado
   shared/          utilitários sem dependência de feature
 src-tauri/
   src/             comandos, SQLite e relações semânticas

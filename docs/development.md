@@ -61,6 +61,18 @@ Os testes que carregam o modelo real são opt-in:
 cd src-tauri
 cargo test real_pipeline_reuses_cache_and_updates_incrementally -- --ignored --nocapture
 cargo test benchmark_embeddinggemma --release -- --ignored --nocapture
+cargo test --release --test benchmark_retrieval benchmark_lexical_semantic_and_hybrid_retrieval -- --ignored --nocapture
+cd ..
+```
+
+Um vault HTML multidomínio pode ser criado localmente para o benchmark de
+recuperação:
+
+```powershell
+npm run benchmark:vault:prepare
+$env:HYPERZETTEL_RETRIEVAL_FIXTURE = "$PWD\.benchmark-vault"
+cd src-tauri
+cargo test --release --test benchmark_retrieval benchmark_lexical_semantic_and_hybrid_retrieval -- --ignored --nocapture
 cd ..
 ```
 
