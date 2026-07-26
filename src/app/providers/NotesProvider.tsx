@@ -259,15 +259,15 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         if (isManual) {
           announce(
             source.status === "draft"
-              ? "Rascunho concluído e salvo neste dispositivo."
-              : "Nota salva neste dispositivo."
+              ? "Nota concluída e disponível para revisão."
+              : "Alterações aplicadas agora."
           );
         }
         enqueueNoteIndexing(note);
         return note;
       } catch (error) {
         console.error(error);
-        announce(vaultErrorMessage(error, "Não foi possível salvar a nota."));
+        announce(vaultErrorMessage(error, "Não foi possível atualizar o arquivo da nota."));
         return null;
       } finally {
         savingRef.current = false;
@@ -496,7 +496,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         toPlainText
       )
     ) {
-      announce("Comece a escrever antes de concluir o rascunho.");
+      announce("Escreva antes de concluir a nota.");
       return;
     }
 

@@ -21,12 +21,12 @@ import {
 } from "@relume_io/relume-ui";
 import {
   BrainCircuit,
+  CircleCheck,
   FileDown,
   FileUp,
   Network,
   PanelLeft,
   PanelRight,
-  Save,
   Trash2
 } from "lucide-react";
 
@@ -43,6 +43,7 @@ import { slugify } from "@/shared/slug";
 import { KindBadge } from "./KindBadge";
 import { FirstCycleCoach } from "@/features/onboarding/FirstCycleCoach";
 import { StructureConnections } from "@/features/onboarding/StructureConnections";
+import { resolveCompletionAction } from "../noteUiState";
 
 export function EditorPane({
   onToggleNotes,
@@ -183,7 +184,7 @@ export function EditorPane({
     [announcer, handleInput]
   );
 
-  // Ctrl/Cmd + S salva manualmente.
+  // Ctrl/Cmd + S conclui o rascunho ou aplica imediatamente uma alteração.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
@@ -196,18 +197,12 @@ export function EditorPane({
   }, [notes]);
 
   const slug = slugify(notes.draft.title);
-  const saveShortcut = formatShortcut("S");
-  const isDraft = notes.draft.status === "draft";
-  const canSave = notes.dirty || (isDraft && notes.currentNote !== null);
-  const saveLabel = isDraft
-    ? notes.dirty
-      ? `Salvar e concluir rascunho (${saveShortcut})`
-      : notes.currentNote
-        ? `Concluir rascunho (${saveShortcut})`
-        : "Novo rascunho — comece a escrever"
-    : notes.dirty
-      ? `Salvar alterações agora (${saveShortcut})`
-      : "Salva";
+  const completionAction = resolveCompletionAction({
+    dirty: notes.dirty,
+    status: notes.draft.status,
+    hasPersistedNote: notes.currentNote !== null,
+    shortcut: formatShortcut("S")
+  });
 
   return (
     <TooltipProvider delayDuration={400}>
@@ -226,11 +221,11 @@ export function EditorPane({
 
           <div className="ml-auto flex items-center gap-0.5">
             <IconAction
-              icon={Save}
-              label={saveLabel}
+              icon={CircleCheck}
+              label={completionAction.label}
               onClick={() => void notes.saveNow()}
-              disabled={notes.saving || !canSave}
-              statusDot={isDraft ? "draft" : undefined}
+              disabled={notes.saving || !completionAction.enabled}
+              statusDot={notes.draft.status === "draft" ? "draft" : undefined}
             />
             <IconAction
               icon={BrainCircuit}

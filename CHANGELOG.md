@@ -15,6 +15,7 @@ segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 ### Changed
 
 - A navegação passa a revelar processamento, pastas, estágios, mapa e revisão apenas quando o conteúdo do vault torna cada recurso útil.
+- Autosave e maturidade deixam de competir na interface: conteúdo pendente é identificado como “Autosave pendente”, enquanto a ação principal passa a ser “Concluir nota” e o estado final, “Nota pronta”.
 
 ### Fixed
 

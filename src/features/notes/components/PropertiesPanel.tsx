@@ -55,6 +55,7 @@ import {
 } from "@/features/knowledge";
 import { RelationRow } from "./RelationRow";
 import { KIND_TONE_CLASSES } from "../kindTones";
+import { NOTE_UI_LABELS, resolveNoteUiState } from "../noteUiState";
 
 function Row({
   icon: Icon,
@@ -168,24 +169,28 @@ export function PropertiesPanel({ onClose }: { onClose?: () => void } = {}) {
 
   const words = countWords(notes.draft.content);
   const visibleRelations = showAllConnections ? notes.relations : notes.relations.slice(0, 3);
+  const noteUiState = resolveNoteUiState({
+    saving: notes.saving,
+    dirty: notes.dirty,
+    status: notes.draft.status,
+    hasPersistedNote: notes.currentNote !== null
+  });
 
   return (
     <aside className="relative flex h-full flex-col border-l border-border-primary bg-background-primary">
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border-primary px-4">
         <SlidersHorizontal className="size-3.5 text-text-secondary" strokeWidth={1.75} />
         <h2 className="flex-1 text-[13px] font-semibold">Propriedades</h2>
-        {notes.dirty || !notes.currentNote ? (
-          <span
-            className={cn(
-              "rounded-md px-1.5 py-0.5 text-2xs font-medium",
-              notes.dirty
-                ? "bg-[#fdf1dd] text-[#7a4d0d]"
-                : "bg-background-tertiary text-text-secondary"
-            )}
-          >
-            {notes.dirty ? "Não salva" : "Rascunho"}
-          </span>
-        ) : null}
+        <span
+          className={cn(
+            "rounded-md px-1.5 py-0.5 text-2xs font-medium",
+            noteUiState === "autosave-pending" || noteUiState === "updating"
+              ? "bg-[#fdf1dd] text-[#7a4d0d]"
+              : "bg-background-tertiary text-text-secondary"
+          )}
+        >
+          {NOTE_UI_LABELS[noteUiState]}
+        </span>
         {onClose ? (
           <Button
             variant="link"
@@ -373,7 +378,7 @@ export function PropertiesPanel({ onClose }: { onClose?: () => void } = {}) {
           <div className="px-4 pt-1">
             {!knowledge.activeRetention ? (
               <p className="py-1 text-xs text-text-secondary">
-                Salve a nota para acompanhar a retenção.
+                Conclua a nota para acompanhar a retenção.
               </p>
             ) : notes.draft.kind === "fleeting" ? (
               // Nota fugaz ainda não foi destilada; revisar só faz sentido depois

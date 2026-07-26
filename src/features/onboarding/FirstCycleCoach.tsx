@@ -42,7 +42,7 @@ export function FirstCycleCoach() {
           <strong className="text-text-primary">
             Ideia {progress.connectedCount + 1} de {progress.targetCount}.
           </strong>{" "}
-          Dê um título, explique com suas palavras e conclua o rascunho.
+          Dê um título, explique com suas palavras e conclua a nota.
         </p>
       </aside>
     );

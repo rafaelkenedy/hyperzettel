@@ -23,14 +23,14 @@ O último comando inicia o frontend Vite e abre a janela nativa do Tauri. A prim
 
 ## Exemplo de uso real
 
-1. Crie uma nota, escreva uma ideia e pressione `Ctrl+S`.
+1. Crie uma nota, escreva uma ideia e pressione `Ctrl+S` para concluí-la.
 2. Crie outra nota e conecte-a à primeira, registrando o motivo da conexão.
 3. Abra **Mapa** para explorar as duas notas. Quando uma revisão vencer, use **A revisar** para registrar como foi a lembrança.
 
 As ações produzem mensagens observáveis na interface:
 
 ```text
-Rascunho concluído e salvo neste dispositivo.
+Nota concluída e disponível para revisão.
 Conexão criada. Explique por que as notas se conectam.
 ```
 
@@ -82,7 +82,7 @@ Cada nota combina três dimensões distintas:
 - **estágio:** Fugaz, Fonte, Permanente, Estrutura ou Referência;
 - **modelo:** uma das dez estruturas de conteúdo, como conceito, projeto, reunião ou diário.
 
-O editor persiste conteúdo significativo 700 ms após a última alteração. Esse autosave mantém a nota como rascunho. `Ctrl+S` ou o botão de salvar marca a nota como salva. Conexões manuais guardam o identificador da outra nota e um motivo textual opcional.
+O editor persiste conteúdo significativo 700 ms após a última alteração. O autosave protege o arquivo sem decidir a maturidade da ideia: ela continua como rascunho até o usuário escolher **Concluir nota** ou pressionar `Ctrl+S`. Conexões manuais guardam o identificador da outra nota e um motivo textual opcional.
 
 Cada nota criada pelo aplicativo recebe um arquivo legível como
 `20260726-194530--relacoes-semanticas--a1b2c3d4.html`: timestamp UTC de criação,

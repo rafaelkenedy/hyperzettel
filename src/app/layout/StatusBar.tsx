@@ -1,6 +1,6 @@
 /**
  * Barra de estado inferior. Mostra apenas informação real do workspace:
- * escopo atual, total de notas, estado do rascunho e atalhos.
+ * escopo atual, total de notas, estado do arquivo e atalhos.
  */
 
 import { CircleCheck, Database, Loader2, PenLine } from "lucide-react";
@@ -9,32 +9,38 @@ import { useNotes } from "@/app/providers/NotesProvider";
 import { scopeLabel } from "@/domain/notes";
 import { formatRelative } from "@/shared/html";
 import { formatShortcut } from "@/shared/platform";
+import { NOTE_UI_LABELS, resolveNoteUiState } from "@/features/notes/noteUiState";
 
 function SaveIndicator() {
   const notes = useNotes();
-  const isDraft = notes.draft.status === "draft";
+  const state = resolveNoteUiState({
+    saving: notes.saving,
+    dirty: notes.dirty,
+    status: notes.draft.status,
+    hasPersistedNote: notes.currentNote !== null
+  });
 
-  if (notes.saving) {
+  if (state === "updating") {
     return (
       <span className="flex items-center gap-1.5 text-text-secondary">
         <Loader2 className="size-3 animate-spin" strokeWidth={2} />
-        Salvando…
+        {NOTE_UI_LABELS[state]}
       </span>
     );
   }
-  if (notes.dirty) {
+  if (state === "autosave-pending") {
     return (
       <span className="flex items-center gap-1.5 text-hz-draft">
         <PenLine className="size-3" strokeWidth={2} />
-        {isDraft ? "Rascunho · alterações pendentes" : "Alterações não salvas"}
+        {NOTE_UI_LABELS[state]}
       </span>
     );
   }
-  if (isDraft) {
+  if (state === "new-draft" || state === "draft-in-vault") {
     return (
       <span className="flex items-center gap-1.5 text-hz-draft">
         <PenLine className="size-3" strokeWidth={2} />
-        {notes.currentNote ? "Rascunho salvo localmente" : "Novo rascunho"}
+        {NOTE_UI_LABELS[state]}
       </span>
     );
   }
@@ -42,8 +48,8 @@ function SaveIndicator() {
     <span className="flex items-center gap-1.5 text-text-secondary">
       <CircleCheck className="size-3" strokeWidth={2} />
       {notes.currentNote
-        ? `Salva ${formatRelative(notes.currentNote.updatedAt)}`
-        : "Nada a salvar"}
+        ? `Nota pronta · atualizada ${formatRelative(notes.currentNote.updatedAt)}`
+        : NOTE_UI_LABELS[state]}
     </span>
   );
 }
@@ -71,7 +77,7 @@ export function StatusBar() {
         <span className="text-border-tertiary">|</span>
         <span className="hidden lg:inline">
           {formatShortcut("N")} nova · {formatShortcut("K")} buscar ·{" "}
-          {formatShortcut("Shift+K")} conectar · {formatShortcut("S")} salvar
+          {formatShortcut("Shift+K")} conectar · {formatShortcut("S")} concluir
         </span>
       </div>
     </footer>
