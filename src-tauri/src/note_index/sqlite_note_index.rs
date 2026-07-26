@@ -26,6 +26,7 @@ pub struct NoteIndexRow {
     pub template: String,
     pub status: String,
     pub plain_text: String,
+    pub content_hash: String,
     pub created_at: String,
     pub updated_at: String,
     pub connections: Vec<IndexConnection>,
@@ -58,7 +59,10 @@ impl SqliteNoteIndex {
         self.database.with_transaction(|tx| {
             tx.execute("DELETE FROM note_index WHERE id = ?1", params![id])?;
             tx.execute("DELETE FROM note_search WHERE id = ?1", params![id])?;
-            tx.execute("DELETE FROM note_connections WHERE note_id = ?1", params![id])?;
+            tx.execute(
+                "DELETE FROM note_connections WHERE note_id = ?1",
+                params![id],
+            )?;
             Ok(())
         })
     }
@@ -69,7 +73,7 @@ impl SqliteNoteIndex {
             let connections = load_connections(connection)?;
             let mut statement = connection.prepare(
                 "SELECT id, file_name, title, folder, kind, template, status, plain_text, \
-                 created_at, updated_at FROM note_index ORDER BY updated_at DESC",
+                 content_hash, created_at, updated_at FROM note_index ORDER BY updated_at DESC",
             )?;
             // Liga a uma variável local para o `MappedRows` (que empresta
             // `statement`) ser dropado antes de `statement` no fim do bloco.
@@ -77,6 +81,44 @@ impl SqliteNoteIndex {
                 .query_map([], |row| read_index_row(row, &connections))?
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(rows)
+        })
+    }
+
+    /// Nome físico associado ao id interno, quando a nota está indexada.
+    /// O nome pode seguir qualquer convenção segura e não precisa conter o id.
+    pub fn file_record(&self, id: &str) -> Result<Option<(String, String)>, DatabaseError> {
+        self.database.with_connection(|connection| {
+            connection
+                .query_row(
+                    "SELECT file_name, content_hash FROM note_index WHERE id = ?1",
+                    params![id],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                )
+                .optional()
+        })
+    }
+
+    /// Id associado a um nome físico, quando existir. A adoção de documentos
+    /// usa esta consulta para não fazer dois ids apontarem para o mesmo arquivo.
+    pub fn id_for_file_name(&self, file_name: &str) -> Result<Option<String>, DatabaseError> {
+        self.database.with_connection(|connection| {
+            connection
+                .query_row(
+                    "SELECT id FROM note_index WHERE file_name = ?1",
+                    params![file_name],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+        })
+    }
+
+    pub fn update_file_name(&self, id: &str, file_name: &str) -> Result<(), DatabaseError> {
+        self.database.with_connection(|connection| {
+            connection.execute(
+                "UPDATE note_index SET file_name = ?2 WHERE id = ?1",
+                params![id, file_name],
+            )?;
+            Ok(())
         })
     }
 
@@ -116,9 +158,11 @@ impl SqliteNoteIndex {
     pub fn get_retention(&self) -> Result<Option<String>, DatabaseError> {
         self.database.with_connection(|connection| {
             connection
-                .query_row("SELECT state_json FROM note_retention WHERE id = 1", [], |row| {
-                    row.get::<_, String>(0)
-                })
+                .query_row(
+                    "SELECT state_json FROM note_retention WHERE id = 1",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
                 .optional()
         })
     }
@@ -139,14 +183,25 @@ impl SqliteNoteIndex {
 fn write_metadata(tx: &Transaction<'_>, row: &NoteIndexRow) -> Result<(), rusqlite::Error> {
     tx.execute(
         "INSERT INTO note_index (id, file_name, title, folder, kind, template, status, \
-         plain_text, created_at, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10) \
+         plain_text, content_hash, created_at, updated_at) \
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11) \
          ON CONFLICT(id) DO UPDATE SET file_name=excluded.file_name, title=excluded.title, \
          folder=excluded.folder, kind=excluded.kind, template=excluded.template, \
          status=excluded.status, plain_text=excluded.plain_text, \
-         created_at=excluded.created_at, updated_at=excluded.updated_at",
+         content_hash=excluded.content_hash, created_at=excluded.created_at, \
+         updated_at=excluded.updated_at",
         params![
-            row.id, row.file_name, row.title, row.folder, row.kind, row.template, row.status,
-            row.plain_text, row.created_at, row.updated_at
+            row.id,
+            row.file_name,
+            row.title,
+            row.folder,
+            row.kind,
+            row.template,
+            row.status,
+            row.plain_text,
+            row.content_hash,
+            row.created_at,
+            row.updated_at
         ],
     )?;
     Ok(())
@@ -162,7 +217,10 @@ fn write_search(tx: &Transaction<'_>, row: &NoteIndexRow) -> Result<(), rusqlite
 }
 
 fn write_connections(tx: &Transaction<'_>, row: &NoteIndexRow) -> Result<(), rusqlite::Error> {
-    tx.execute("DELETE FROM note_connections WHERE note_id = ?1", params![row.id])?;
+    tx.execute(
+        "DELETE FROM note_connections WHERE note_id = ?1",
+        params![row.id],
+    )?;
     for connection in &row.connections {
         tx.execute(
             "INSERT OR IGNORE INTO note_connections (note_id, target_id, reason) VALUES (?1,?2,?3)",
@@ -180,7 +238,13 @@ fn load_connections(
     let mut grouped: HashMap<String, Vec<IndexConnection>> = HashMap::new();
     let rows = statement.query_map([], |row| {
         let note_id: String = row.get(0)?;
-        Ok((note_id, IndexConnection { id: row.get(1)?, reason: row.get(2)? }))
+        Ok((
+            note_id,
+            IndexConnection {
+                id: row.get(1)?,
+                reason: row.get(2)?,
+            },
+        ))
     })?;
     for entry in rows {
         let (note_id, connection) = entry?;
@@ -204,8 +268,9 @@ fn read_index_row(
         template: row.get(5)?,
         status: row.get(6)?,
         plain_text: row.get(7)?,
-        created_at: row.get(8)?,
-        updated_at: row.get(9)?,
+        content_hash: row.get(8)?,
+        created_at: row.get(9)?,
+        updated_at: row.get(10)?,
         connections: owned,
     })
 }
@@ -215,7 +280,12 @@ fn read_index_row(
 fn fts_match_query(input: &str) -> String {
     input
         .split_whitespace()
-        .map(|token| token.chars().filter(|c| c.is_alphanumeric()).collect::<String>())
+        .map(|token| {
+            token
+                .chars()
+                .filter(|c| c.is_alphanumeric())
+                .collect::<String>()
+        })
         .filter(|token| !token.is_empty())
         .map(|token| format!("{token}*"))
         .collect::<Vec<_>>()
@@ -236,6 +306,7 @@ mod tests {
             template: "blank".to_owned(),
             status: "saved".to_owned(),
             plain_text: plain_text.to_owned(),
+            content_hash: format!("hash-{id}"),
             created_at: "2026-01-01T00:00:00.000Z".to_owned(),
             updated_at: format!("2026-01-01T00:00:0{}.000Z", id.len()),
             connections: Vec::new(),
@@ -265,10 +336,44 @@ mod tests {
     }
 
     #[test]
+    fn file_name_is_resolved_by_internal_id() {
+        let index = index();
+        let mut row = sample("internal-id", "Manual", "texto");
+        row.file_name = "minha-nota-manual.html".to_owned();
+        index.upsert(&row).unwrap();
+
+        assert_eq!(
+            index.file_record("internal-id").unwrap(),
+            Some((
+                "minha-nota-manual.html".to_owned(),
+                "hash-internal-id".to_owned()
+            ))
+        );
+        assert_eq!(index.file_record("missing").unwrap(), None);
+    }
+
+    #[test]
+    fn physical_file_name_cannot_belong_to_two_ids() {
+        let index = index();
+        let mut first = sample("a", "Primeira", "texto");
+        first.file_name = "manual.html".to_owned();
+        index.upsert(&first).unwrap();
+
+        let mut second = sample("b", "Segunda", "texto");
+        second.file_name = "manual.html".to_owned();
+        assert!(index.upsert(&second).is_err());
+        assert_eq!(index.list().unwrap(), vec![first]);
+    }
+
+    #[test]
     fn search_matches_by_prefix_and_ignores_accents() {
         let index = index();
-        index.upsert(&sample("a", "Café da manhã", "sobre cafeína")).unwrap();
-        index.upsert(&sample("b", "Outra nota", "chá gelado")).unwrap();
+        index
+            .upsert(&sample("a", "Café da manhã", "sobre cafeína"))
+            .unwrap();
+        index
+            .upsert(&sample("b", "Outra nota", "chá gelado"))
+            .unwrap();
         assert_eq!(index.search("cafe").unwrap(), vec!["a".to_owned()]);
         assert!(index.search("   ").unwrap().is_empty());
     }
@@ -277,7 +382,10 @@ mod tests {
     fn delete_removes_from_every_table() {
         let index = index();
         let mut row = sample("a", "Ideia", "corpo");
-        row.connections.push(IndexConnection { id: "b".to_owned(), reason: "liga".to_owned() });
+        row.connections.push(IndexConnection {
+            id: "b".to_owned(),
+            reason: "liga".to_owned(),
+        });
         index.upsert(&row).unwrap();
         index.delete("a").unwrap();
         assert!(index.list().unwrap().is_empty());
@@ -289,8 +397,14 @@ mod tests {
         let index = index();
         let mut row = sample("a", "Ideia", "corpo");
         row.connections = vec![
-            IndexConnection { id: "b".to_owned(), reason: "porque".to_owned() },
-            IndexConnection { id: "c".to_owned(), reason: String::new() },
+            IndexConnection {
+                id: "b".to_owned(),
+                reason: "porque".to_owned(),
+            },
+            IndexConnection {
+                id: "c".to_owned(),
+                reason: String::new(),
+            },
         ];
         index.upsert(&row).unwrap();
         let stored = index.list().unwrap().remove(0);
@@ -316,8 +430,14 @@ mod tests {
         let index = index();
         assert_eq!(index.get_retention().unwrap(), None);
         index.set_retention("{\"streak\":3}").unwrap();
-        assert_eq!(index.get_retention().unwrap(), Some("{\"streak\":3}".to_owned()));
+        assert_eq!(
+            index.get_retention().unwrap(),
+            Some("{\"streak\":3}".to_owned())
+        );
         index.set_retention("{\"streak\":4}").unwrap();
-        assert_eq!(index.get_retention().unwrap(), Some("{\"streak\":4}".to_owned()));
+        assert_eq!(
+            index.get_retention().unwrap(),
+            Some("{\"streak\":4}".to_owned())
+        );
     }
 }

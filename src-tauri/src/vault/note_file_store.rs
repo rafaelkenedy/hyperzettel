@@ -1,8 +1,11 @@
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
+use sha2::{Digest, Sha256};
 use thiserror::Error;
+use uuid::Uuid;
 
 /// Erros do armazenamento de notas em arquivo. Cada variante inclui o valor
 /// ofensor e a forma esperada, para diagnóstico (ver guia de estilo).
@@ -10,10 +13,14 @@ use thiserror::Error;
 pub enum VaultError {
     #[error("vault root '{0}' is not a directory")]
     RootNotDirectory(String),
-    #[error("note file name '{0}' is unsafe: expected a bare '<slug>--<id>.html' with no path separators or '..'")]
+    #[error("note file name '{0}' is unsafe: expected a bare '.html' file name with no path separators or '..'")]
     UnsafeFileName(String),
     #[error("resolved note path '{resolved}' escaped the vault root '{root}'")]
     PathEscapesVault { resolved: String, root: String },
+    #[error("note path '{0}' is a symbolic link or unsupported file type")]
+    UnsafeFileType(String),
+    #[error("vault write lock is poisoned")]
+    LockPoisoned,
     #[error("failed to {action} note file '{path}': {source}")]
     Io {
         action: &'static str,
@@ -24,7 +31,7 @@ pub enum VaultError {
 }
 
 impl VaultError {
-    fn io(action: &'static str, path: &Path, source: std::io::Error) -> Self {
+    pub(crate) fn io(action: &'static str, path: &Path, source: std::io::Error) -> Self {
         Self::Io {
             action,
             path: path.display().to_string(),
@@ -40,6 +47,7 @@ impl VaultError {
 #[derive(Debug, Clone)]
 pub struct VaultStore {
     root: PathBuf,
+    write_lock: Arc<Mutex<()>>,
 }
 
 impl VaultStore {
@@ -51,48 +59,135 @@ impl VaultStore {
     /// let store = VaultStore::open(PathBuf::from("/data/vault")).unwrap();
     /// ```
     pub fn open(root: PathBuf) -> Result<Self, VaultError> {
-        fs::create_dir_all(&root).map_err(|source| VaultError::io("create vault root", &root, source))?;
+        fs::create_dir_all(&root)
+            .map_err(|source| VaultError::io("create vault root", &root, source))?;
         if !root.is_dir() {
             return Err(VaultError::RootNotDirectory(root.display().to_string()));
         }
-        Ok(Self { root })
+        Ok(Self {
+            root,
+            write_lock: Arc::new(Mutex::new(())),
+        })
+    }
+
+    /// Caminho físico do vault. Exposto somente para informações ao usuário e
+    /// para abrir a pasta; operações de nota continuam passando pelos métodos
+    /// que validam cada nome.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// Quantidade de documentos HTML e soma dos tamanhos físicos. Não lê o
+    /// conteúdo, então pode alimentar a Central do Vault sem transferir notas.
+    pub fn statistics(&self) -> Result<(usize, u64), VaultError> {
+        let files = self.list_note_files()?;
+        let mut total_bytes = 0_u64;
+        for file_name in &files {
+            let path = self.safe_note_path(file_name)?;
+            let metadata =
+                fs::metadata(&path).map_err(|source| VaultError::io("inspect", &path, source))?;
+            total_bytes = total_bytes.saturating_add(metadata.len());
+        }
+        Ok((files.len(), total_bytes))
     }
 
     /// Grava o documento de forma atômica (arquivo temporário + rename), para
     /// nunca deixar uma nota meio-escrita se o processo cair no meio.
     pub fn write_note(&self, file_name: &str, html: &str) -> Result<(), VaultError> {
-        let path = self.safe_path(file_name)?;
-        let temp = self.safe_path(&format!("{file_name}.tmp"))?;
+        let _guard = self
+            .write_lock
+            .lock()
+            .map_err(|_| VaultError::LockPoisoned)?;
+        let path = self.safe_note_path(file_name)?;
+        let temp = self.safe_path(&format!("{file_name}.{}.tmp", Uuid::new_v4()))?;
         write_then_rename(&temp, &path, html)
+    }
+
+    /// Cria uma nota somente se o nome ainda estiver livre. A checagem e a
+    /// publicação são serializadas com as demais escritas deste vault.
+    pub fn write_new_note(&self, file_name: &str, html: &str) -> Result<bool, VaultError> {
+        let _guard = self
+            .write_lock
+            .lock()
+            .map_err(|_| VaultError::LockPoisoned)?;
+        let path = self.safe_note_path(file_name)?;
+        if path.exists() {
+            return Ok(false);
+        }
+        let temp = self.safe_path(&format!("{file_name}.{}.tmp", Uuid::new_v4()))?;
+        write_then_rename(&temp, &path, html)?;
+        Ok(true)
+    }
+
+    /// Informa se um nome físico seguro já está ocupado no vault.
+    pub fn note_exists(&self, file_name: &str) -> Result<bool, VaultError> {
+        Ok(self.safe_note_path(file_name)?.is_file())
     }
 
     /// Lê o documento HTML de uma nota pelo nome de arquivo.
     pub fn read_note(&self, file_name: &str) -> Result<String, VaultError> {
-        let path = self.safe_path(file_name)?;
+        let path = self.safe_note_path(file_name)?;
         fs::read_to_string(&path).map_err(|source| VaultError::io("read", &path, source))
+    }
+
+    /// SHA-256 do documento físico atual.
+    pub fn note_hash(&self, file_name: &str) -> Result<String, VaultError> {
+        let path = self.safe_note_path(file_name)?;
+        let bytes = fs::read(&path).map_err(|source| VaultError::io("hash", &path, source))?;
+        Ok(content_hash(&bytes))
+    }
+
+    /// Nomes cujo conteúdo possui o hash informado.
+    pub fn find_note_files_by_hash(&self, expected: &str) -> Result<Vec<String>, VaultError> {
+        let mut matches = Vec::new();
+        for file_name in self.list_note_files()? {
+            if self.note_hash(&file_name)? == expected {
+                matches.push(file_name);
+            }
+        }
+        Ok(matches)
     }
 
     /// Remove o arquivo de uma nota do vault.
     pub fn delete_note(&self, file_name: &str) -> Result<(), VaultError> {
-        let path = self.safe_path(file_name)?;
+        let path = self.safe_note_path(file_name)?;
         fs::remove_file(&path).map_err(|source| VaultError::io("delete", &path, source))
     }
 
     /// Lê todos os documentos do vault de uma vez (nome + html), para o
     /// carregamento inicial fazer um único IPC em vez de N leituras.
-    pub fn read_all_documents(&self) -> Result<Vec<(String, String)>, VaultError> {
+    pub fn read_all_documents(&self) -> Result<Vec<(String, String, String)>, VaultError> {
         self.list_note_files()?
             .into_iter()
-            .map(|name| self.read_note(&name).map(|html| (name, html)))
+            .map(|name| {
+                self.read_note(&name).map(|html| {
+                    let hash = content_hash(html.as_bytes());
+                    (name, html, hash)
+                })
+            })
+            .collect()
+    }
+
+    /// Fingerprints atuais sem transferir o HTML pela fronteira IPC.
+    pub fn list_note_fingerprints(&self) -> Result<Vec<(String, String)>, VaultError> {
+        self.list_note_files()?
+            .into_iter()
+            .map(|name| self.note_hash(&name).map(|hash| (name, hash)))
             .collect()
     }
 
     /// Nomes dos arquivos `.html` na raiz do vault, ordenados (sem recursão).
     pub fn list_note_files(&self) -> Result<Vec<String>, VaultError> {
-        let entries =
-            fs::read_dir(&self.root).map_err(|source| VaultError::io("list", &self.root, source))?;
+        let entries = fs::read_dir(&self.root)
+            .map_err(|source| VaultError::io("list", &self.root, source))?;
         let mut names: Vec<String> = entries
             .flatten()
+            .filter(|entry| {
+                entry
+                    .file_type()
+                    .map(|file_type| file_type.is_file() && !file_type.is_symlink())
+                    .unwrap_or(false)
+            })
             .filter_map(|entry| html_file_name(&entry.path()))
             .collect();
         names.sort();
@@ -114,6 +209,19 @@ impl VaultStore {
         }
         Ok(resolved)
     }
+
+    fn safe_note_path(&self, file_name: &str) -> Result<PathBuf, VaultError> {
+        if !file_name.to_ascii_lowercase().ends_with(".html") {
+            return Err(VaultError::UnsafeFileName(file_name.to_owned()));
+        }
+        let path = self.safe_path(file_name)?;
+        if let Ok(metadata) = fs::symlink_metadata(&path) {
+            if metadata.file_type().is_symlink() || !metadata.file_type().is_file() {
+                return Err(VaultError::UnsafeFileType(path.display().to_string()));
+            }
+        }
+        Ok(path)
+    }
 }
 
 /// Um nome de arquivo seguro é um único componente, sem separadores nem `..`.
@@ -127,7 +235,11 @@ fn is_bare_file_name(file_name: &str) -> bool {
 
 /// Nome do arquivo se ele terminar em `.html`; caso contrário `None`.
 fn html_file_name(path: &Path) -> Option<String> {
-    if path.extension().and_then(|extension| extension.to_str()) != Some("html") {
+    if !path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("html"))
+    {
         return None;
     }
     path.file_name()
@@ -135,18 +247,31 @@ fn html_file_name(path: &Path) -> Option<String> {
         .map(str::to_owned)
 }
 
-/// Escreve o conteúdo num arquivo temporário e o renomeia por cima do final —
+/// Escreve o conteúdo num arquivo temporário e o renomeia por cima do final -
 /// o rename é atômico na maioria dos sistemas de arquivos, garantindo que um
 /// leitor nunca veja um documento parcial.
 fn write_then_rename(temp: &Path, final_path: &Path, contents: &str) -> Result<(), VaultError> {
-    let mut file =
-        fs::File::create(temp).map_err(|source| VaultError::io("create temp file for", temp, source))?;
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(temp)
+        .map_err(|source| VaultError::io("create temp file for", temp, source))?;
     file.write_all(contents.as_bytes())
         .map_err(|source| VaultError::io("write", temp, source))?;
     // Durabilidade best-effort; a atomicidade vem do rename, não do fsync.
-    let _ = file.sync_all();
-    fs::rename(temp, final_path)
-        .map_err(|source| VaultError::io("rename temp file into", final_path, source))
+    file.sync_all()
+        .map_err(|source| VaultError::io("sync", temp, source))?;
+    drop(file);
+    let result = fs::rename(temp, final_path)
+        .map_err(|source| VaultError::io("rename temp file into", final_path, source));
+    if result.is_err() {
+        let _ = fs::remove_file(temp);
+    }
+    result
+}
+
+fn content_hash(bytes: &[u8]) -> String {
+    hex::encode(Sha256::digest(bytes))
 }
 
 #[cfg(test)]
@@ -156,7 +281,7 @@ mod tests {
 
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-    /// Diretório temporário único por teste — mantém os testes independentes
+    /// Diretório temporário único por teste - mantém os testes independentes
     /// (F.I.R.S.T.) sem depender de uma crate de fixture.
     fn temp_vault() -> VaultStore {
         let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -179,7 +304,19 @@ mod tests {
         store.write_note("n--1.html", "v2").unwrap();
         assert_eq!(store.read_note("n--1.html").unwrap(), "v2");
         // O arquivo temporário não deve sobrar.
-        assert!(!store.list_note_files().unwrap().iter().any(|n| n.ends_with(".tmp")));
+        assert!(!store
+            .list_note_files()
+            .unwrap()
+            .iter()
+            .any(|n| n.ends_with(".tmp")));
+    }
+
+    #[test]
+    fn note_exists_checks_a_safe_physical_name() {
+        let store = temp_vault();
+        assert!(!store.note_exists("livre.html").unwrap());
+        store.write_note("livre.html", "x").unwrap();
+        assert!(store.note_exists("livre.html").unwrap());
     }
 
     #[test]
@@ -202,6 +339,16 @@ mod tests {
     }
 
     #[test]
+    fn statistics_counts_only_vault_documents() {
+        let store = temp_vault();
+        store.write_note("a.html", "123").unwrap();
+        store.write_note("b.HTML", "12345").unwrap();
+        fs::write(store.root().join("ignorado.txt"), "fora").unwrap();
+
+        assert_eq!(store.statistics().unwrap(), (2, 8));
+    }
+
+    #[test]
     fn read_all_documents_pairs_name_and_html() {
         let store = temp_vault();
         store.write_note("a--1.html", "<p>um</p>").unwrap();
@@ -209,10 +356,42 @@ mod tests {
         assert_eq!(
             store.read_all_documents().unwrap(),
             vec![
-                ("a--1.html".to_owned(), "<p>um</p>".to_owned()),
-                ("b--2.html".to_owned(), "<p>dois</p>".to_owned())
+                (
+                    "a--1.html".to_owned(),
+                    "<p>um</p>".to_owned(),
+                    content_hash(b"<p>um</p>")
+                ),
+                (
+                    "b--2.html".to_owned(),
+                    "<p>dois</p>".to_owned(),
+                    content_hash(b"<p>dois</p>")
+                )
             ]
         );
+    }
+
+    #[test]
+    fn accepts_uppercase_html_extension_when_reading_existing_files() {
+        let store = temp_vault();
+        store.write_note("MANUAL.HTML", "<p>manual</p>").unwrap();
+        assert_eq!(
+            store.list_note_files().unwrap(),
+            vec!["MANUAL.HTML".to_owned()]
+        );
+        assert_eq!(store.read_note("MANUAL.HTML").unwrap(), "<p>manual</p>");
+    }
+
+    #[test]
+    fn rejects_non_html_names_for_all_note_operations() {
+        let store = temp_vault();
+        assert!(matches!(
+            store.write_note("nota.txt", "x"),
+            Err(VaultError::UnsafeFileName(_))
+        ));
+        assert!(matches!(
+            store.read_note("nota.txt"),
+            Err(VaultError::UnsafeFileName(_))
+        ));
     }
 
     #[test]
@@ -220,7 +399,10 @@ mod tests {
         let store = temp_vault();
         for unsafe_name in ["../escape.html", "sub/dir.html", "..", "", "a\\b.html"] {
             assert!(
-                matches!(store.read_note(unsafe_name), Err(VaultError::UnsafeFileName(_))),
+                matches!(
+                    store.read_note(unsafe_name),
+                    Err(VaultError::UnsafeFileName(_))
+                ),
                 "esperava rejeitar {unsafe_name:?}"
             );
         }

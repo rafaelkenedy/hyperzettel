@@ -10,6 +10,7 @@ import { describe, expect, test } from "vitest";
 
 import { createNoteRecord, type Note } from "@/domain/notes";
 import {
+  adoptHtmlDocumentAsNote,
   noteFileName,
   parseHtmlDocumentToNote,
   serializeNoteToHtmlDocument
@@ -95,8 +96,54 @@ describe("serializeNoteToHtmlDocument / parseHtmlDocumentToNote", () => {
   });
 });
 
+describe("adoptHtmlDocumentAsNote", () => {
+  test("adota HTML comum como captura salva e preserva conteúdo seguro", () => {
+    const adopted = adoptHtmlDocumentAsNote(
+      '<!doctype html><html><head><title>Nota manual</title></head><body><p>Ideia <strong>útil</strong>.</p><script>roubar()</script></body></html>',
+      { id: "adopted-1", now: "2026-07-26T20:00:00.000Z" }
+    );
+
+    expect(adopted).toMatchObject({
+      id: "adopted-1",
+      title: "Nota manual",
+      folder: "inbox",
+      kind: "fleeting",
+      template: "blank",
+      status: "saved",
+      createdAt: "2026-07-26T20:00:00.000Z"
+    });
+    expect(adopted!.content).toContain("<strong>útil</strong>");
+    expect(adopted!.content).not.toContain("script");
+  });
+
+  test("não adota documento vazio nem documento que já declara hz:id", () => {
+    expect(adoptHtmlDocumentAsNote("")).toBeNull();
+    expect(
+      adoptHtmlDocumentAsNote(
+        '<html><head><meta name="hz:id" content="existente"></head><body><p>x</p></body></html>'
+      )
+    ).toBeNull();
+  });
+});
+
 describe("noteFileName", () => {
-  test("usa o id como nome, estável a renomeações de título", () => {
-    expect(noteFileName({ id: "abc" })).toBe("abc.html");
+  test("combina timestamp UTC, título legível e oito caracteres do id", () => {
+    expect(
+      noteFileName({
+        id: "a1b2c3d4-e5f6-4789-abcd-0123456789ab",
+        title: "Relações semânticas locais",
+        createdAt: "2026-07-26T19:45:30.000Z"
+      })
+    ).toBe("20260726-194530--relacoes-semanticas-locais--a1b2c3d4.html");
+  });
+
+  test("usa valores seguros quando título, data ou id não ajudam", () => {
+    expect(
+      noteFileName({
+        id: "---",
+        title: "!!!",
+        createdAt: "data inválida"
+      })
+    ).toBe("00000000-000000--sem-titulo--note.html");
   });
 });

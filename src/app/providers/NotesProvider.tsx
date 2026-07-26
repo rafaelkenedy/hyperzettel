@@ -39,7 +39,11 @@ import {
 } from "@/domain/notes";
 import { findTemplate } from "@/domain/templates";
 import { toPlainText, type NoteSection } from "@/shared/html";
-import { vaultRepository, type NoteIndexRow } from "@/infrastructure/vaultRepository";
+import {
+  vaultErrorMessage,
+  vaultRepository,
+  type NoteIndexRow
+} from "@/infrastructure/vaultRepository";
 import { useAnnouncer } from "@/app/providers/AnnouncerProvider";
 import { useNavigation } from "@/app/providers/NavigationProvider";
 import {
@@ -261,7 +265,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         return note;
       } catch (error) {
         console.error(error);
-        announce("Não foi possível salvar a nota.");
+        announce(vaultErrorMessage(error, "Não foi possível salvar a nota."));
         return null;
       } finally {
         savingRef.current = false;
@@ -284,7 +288,17 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       if (!id) return;
 
       window.clearTimeout(autosaveRef.current);
-      if (dirtyRef.current) await persistNote("draft");
+      if (dirtyRef.current) {
+        const source = draftRef.current;
+        const meaningful = hasMeaningfulContent(
+          { title: source.title, content: source.content, connections: source.connections },
+          toPlainText
+        );
+        const persisted = await persistNote("draft");
+        // Uma divergência no arquivo nunca pode transformar a navegação numa
+        // perda silenciosa do rascunho que ainda está apenas no editor.
+        if (meaningful && !persisted) return;
+      }
       if (id === draftRef.current.id && currentNoteRef.current) {
         // A nota já está carregada; não recarrega (preserva o cursor), mas
         // ainda navega para a tela da nota — senão, clicá-la a partir do Início
@@ -294,7 +308,14 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      const note = await vaultRepository.read(id);
+      let note: Note | null;
+      try {
+        note = await vaultRepository.read(id);
+      } catch (error) {
+        console.error(error);
+        announce(vaultErrorMessage(error, "Não foi possível abrir esta nota."));
+        return;
+      }
       if (!note) {
         announce("Esta nota não está mais disponível.");
         return;
@@ -319,7 +340,15 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     async (options: { updateHistory?: boolean } = {}) => {
       const { updateHistory = true } = options;
       window.clearTimeout(autosaveRef.current);
-      if (dirtyRef.current) await persistNote("draft");
+      if (dirtyRef.current) {
+        const source = draftRef.current;
+        const meaningful = hasMeaningfulContent(
+          { title: source.title, content: source.content, connections: source.connections },
+          toPlainText
+        );
+        const persisted = await persistNote("draft");
+        if (meaningful && !persisted) return;
+      }
 
       const fresh = emptyDraft();
       revisionRef.current = 0;
@@ -440,8 +469,14 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     window.clearTimeout(autosaveRef.current);
     const id = draftRef.current.id;
     if (!createdInSessionRef.current || currentNoteRef.current) {
-      await vaultRepository.remove(id);
-      await removeNoteFromKnowledgeIndex(id);
+      try {
+        await vaultRepository.remove(id);
+        await removeNoteFromKnowledgeIndex(id);
+      } catch (error) {
+        console.error(error);
+        announce(vaultErrorMessage(error, "Não foi possível excluir esta nota."));
+        return;
+      }
     }
     setNotes((previous) => previous.filter((note) => note.id !== id));
     announce("Nota excluída.");
@@ -452,7 +487,15 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const newNoteFromTemplate = useCallback(
     async (templateId: TemplateId) => {
       window.clearTimeout(autosaveRef.current);
-      if (dirtyRef.current) await persistNote("draft");
+      if (dirtyRef.current) {
+        const source = draftRef.current;
+        const meaningful = hasMeaningfulContent(
+          { title: source.title, content: source.content, connections: source.connections },
+          toPlainText
+        );
+        const persisted = await persistNote("draft");
+        if (meaningful && !persisted) return;
+      }
 
       const template = findTemplate(templateId);
 
@@ -590,11 +633,19 @@ export function NotesProvider({ children }: { children: ReactNode }) {
 
     (async () => {
       try {
-        // Reconcilia o índice com os arquivos do vault (a fonte da verdade): se
-        // o índice está vazio mas há arquivos — vault sincronizado para outra
-        // máquina, ou índice apagado —, reconstrói a partir deles.
-        if ((await vaultRepository.list()).length === 0) {
-          await vaultRepository.reindexFromVault();
+        // Reconcilia nomes físicos e índice sem ler o corpo pesado quando nada
+        // mudou. Arquivos adicionados, removidos ou renomeados fora do app
+        // disparam a reconstrução a partir do vault (a fonte da verdade).
+        const report = await vaultRepository.reconcileIndexWithVault();
+        if (report?.issues.length) {
+          const names = report.issues
+            .flatMap((issue) => issue.fileNames)
+            .slice(0, 3)
+            .join(", ");
+          announce(
+            `${report.issues.length} conflito(s) de identidade não foram indexados: ${names}. ` +
+              "Revise os arquivos com hz:id ausente ou duplicado."
+          );
         }
         const all = (await vaultRepository.list()).map(toListNote);
         if (cancelled) return;
@@ -619,7 +670,9 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         }
       } catch (error) {
         console.error(error);
-        if (!cancelled) announce("O armazenamento local não pôde ser iniciado.");
+        if (!cancelled) {
+          announce(vaultErrorMessage(error, "O armazenamento local não pôde ser iniciado."));
+        }
       } finally {
         if (!cancelled) setReady(true);
       }

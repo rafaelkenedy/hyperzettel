@@ -124,7 +124,7 @@ describe("importação de formatos antigos", () => {
     const { service, docs } = createService();
     const image = "data:image/webp;base64,UklGRhoAAABXRUJQ";
 
-    await service.importBackup(
+    const result = await service.importBackup(
       backupFile({
         format: "hyperzettelkasten",
         version: 2,
@@ -133,8 +133,9 @@ describe("importação de formatos antigos", () => {
       })
     );
 
-    expect(docs.get("a.html")).toContain(image);
-    expect(docs.get("a.html")).not.toContain("data-image-id");
+    const document = docs.get(noteFileName(result!.notes[0]!));
+    expect(document).toContain(image);
+    expect(document).not.toContain("data-image-id");
   });
 });
 

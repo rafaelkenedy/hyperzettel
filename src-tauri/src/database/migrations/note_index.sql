@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS note_index (
     template TEXT NOT NULL,
     status TEXT NOT NULL,
     plain_text TEXT NOT NULL,
+    content_hash TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -20,6 +21,9 @@ CREATE INDEX IF NOT EXISTS idx_note_index_updated_at
 
 CREATE INDEX IF NOT EXISTS idx_note_index_folder
     ON note_index(folder);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_note_index_file_name
+    ON note_index(file_name);
 
 -- Conexões declaradas pelo usuário (distintas das relações semânticas do
 -- módulo knowledge): aresta simples nota -> alvo, com o motivo.
@@ -48,4 +52,4 @@ CREATE TABLE IF NOT EXISTS note_retention (
     state_json TEXT NOT NULL
 );
 
-PRAGMA user_version = 2;
+PRAGMA user_version = 3;

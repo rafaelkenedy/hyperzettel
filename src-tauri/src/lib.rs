@@ -10,16 +10,18 @@ pub mod vault;
 #[path = "../model_resource_manifest.rs"]
 pub(crate) mod model_resource_manifest;
 
+use commands::notes::{
+    delete_note, get_retention_state, list_notes, read_note, rebuild_note_index, save_note,
+    search_notes, set_retention_state,
+};
 use commands::relations::{
     enqueue_note_indexing, get_related_notes, get_relation_status, pause_relation_indexing,
     rebuild_knowledge_relations, reject_automatic_relation, remove_note_from_knowledge_index,
     restore_automatic_relation, resume_relation_indexing, sync_knowledge_notes,
 };
-use commands::notes::{
-    delete_note, get_retention_state, list_notes, rebuild_note_index, save_note, search_notes,
-    set_retention_state,
+use commands::vault::{
+    adopt_note_file, get_vault_info, list_note_files, open_vault_folder, read_all_note_files,
 };
-use commands::vault::{read_all_note_files, read_note_file};
 use state::build_app_state;
 use tauri::Manager;
 
@@ -57,8 +59,12 @@ pub fn run() {
             reject_automatic_relation,
             restore_automatic_relation,
             remove_note_from_knowledge_index,
+            list_note_files,
             read_all_note_files,
-            read_note_file,
+            get_vault_info,
+            open_vault_folder,
+            adopt_note_file,
+            read_note,
             save_note,
             delete_note,
             list_notes,

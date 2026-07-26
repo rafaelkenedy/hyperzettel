@@ -23,12 +23,14 @@
  */
 
 import {
+  createId,
   createNoteRecord,
   normalizeConnections,
   type Connection,
   type Note
 } from "@/domain/notes";
 import { sanitizeNoteContent } from "@/shared/html";
+import { slugify } from "@/shared/slug";
 
 /** Prefixo dos metadados no `<meta name>`, para não colidir com meta padrão. */
 const META_PREFIX = "hz:";
@@ -172,12 +174,67 @@ export function parseHtmlDocumentToNote(html: string): Note | null {
 }
 
 /**
- * Nome de arquivo estável da nota: `<id>.html`. Usa o id (não o título) para o
- * nome não mudar quando o título é editado — renomear o título orfanaria o
- * arquivo antigo. O título legível vive dentro do documento (`<title>`/`<h1>`).
- *
- * @example noteFileName({ id: "abc" }) // "abc.html"
+ * Converte um HTML externo sem `hz:id` numa nota pertencente ao vault.
+ * O conteúdo passa pelo mesmo sanitizer do editor e nasce na Entrada como
+ * captura fugaz, para que a origem externa percorra o fluxo de processamento.
+ * Documentos que já possuem identidade não são adotados por esta função.
  */
-export function noteFileName(note: Pick<Note, "id">): string {
-  return `${note.id}.html`;
+export function adoptHtmlDocumentAsNote(
+  html: string,
+  options: { id?: string; now?: string } = {}
+): Note | null {
+  if (typeof html !== "string" || !html.trim()) return null;
+
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  if (readMeta(doc, "id")) return null;
+
+  const body = doc.body.querySelector(".hz-prose") ?? doc.body;
+  const content = sanitizeNoteContent(body.innerHTML);
+  const title = readTitle(doc);
+  if (!title && !content.trim()) return null;
+
+  const now = options.now ?? new Date().toISOString();
+  return createNoteRecord({
+    id: options.id ?? createId(),
+    title,
+    content,
+    folder: "inbox",
+    kind: "fleeting",
+    template: "blank",
+    status: "saved",
+    createdAt: now,
+    updatedAt: now
+  });
+}
+
+/**
+ * Nome convencional para uma nota criada pelo aplicativo:
+ * `<timestamp>--<titulo>--<id-curto>.html`.
+ * Arquivos encontrados no vault podem ter qualquer outro nome seguro; o
+ * `hz:id` dentro do HTML é a identidade da nota e o índice preserva o nome
+ * físico real.
+ *
+ * O timestamp usa UTC para que o mesmo `createdAt` produza o mesmo nome em
+ * máquinas com fusos diferentes. Depois do primeiro salvamento, o índice
+ * preserva o nome físico mesmo que o título mude.
+ */
+export function noteFileName(note: Pick<Note, "id" | "title" | "createdAt">): string {
+  const createdAt = new Date(note.createdAt);
+  const timestamp = Number.isNaN(createdAt.getTime())
+    ? "00000000-000000"
+    : [
+        createdAt.getUTCFullYear().toString().padStart(4, "0"),
+        (createdAt.getUTCMonth() + 1).toString().padStart(2, "0"),
+        createdAt.getUTCDate().toString().padStart(2, "0"),
+        "-",
+        createdAt.getUTCHours().toString().padStart(2, "0"),
+        createdAt.getUTCMinutes().toString().padStart(2, "0"),
+        createdAt.getUTCSeconds().toString().padStart(2, "0")
+      ].join("");
+  const shortId =
+    note.id
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "")
+      .slice(0, 8) || "note";
+  return `${timestamp}--${slugify(note.title)}--${shortId}.html`;
 }

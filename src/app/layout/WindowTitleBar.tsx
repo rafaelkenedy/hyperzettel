@@ -9,9 +9,21 @@ import {
 } from "@relume_io/relume-ui";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ArrowLeft, ArrowRight, Copy, FileDown, FileUp, Menu, Minus, Square, X } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Copy,
+  Database,
+  FileDown,
+  FileUp,
+  Menu,
+  Minus,
+  Square,
+  X
+} from "lucide-react";
 
 import { useBackup } from "@/app/useBackup";
+import { VaultCenter } from "@/features/vault";
 
 type NavigationAvailability = EventTarget & {
   readonly canGoBack: boolean;
@@ -67,6 +79,7 @@ export function WindowTitleBar() {
   const importInputRef = useRef<HTMLInputElement>(null);
   const { canGoBack, canGoForward } = useHistoryAvailability();
   const [maximized, setMaximized] = useState(false);
+  const [vaultCenterOpen, setVaultCenterOpen] = useState(false);
 
   useEffect(() => {
     if (!runningInTauri) return;
@@ -137,6 +150,14 @@ export function WindowTitleBar() {
             >
               <FileDown className="size-4 text-text-secondary" strokeWidth={1.75} />
               Exportar backup JSON
+            </DropdownMenuItem>
+            <DropdownMenuSeparator className="my-1 bg-border-primary" />
+            <DropdownMenuItem
+              className="flex cursor-default items-center gap-2.5 rounded-md px-2 py-2 text-xs text-text-primary outline-none data-[highlighted]:bg-hz-hover"
+              onSelect={() => setVaultCenterOpen(true)}
+            >
+              <Database className="size-4 text-text-secondary" strokeWidth={1.75} />
+              Central do Vault
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -215,6 +236,7 @@ export function WindowTitleBar() {
           if (file) void backup.importNotes(file);
         }}
       />
+      <VaultCenter open={vaultCenterOpen} onOpenChange={setVaultCenterOpen} />
     </header>
   );
 }

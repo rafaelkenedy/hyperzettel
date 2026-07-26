@@ -45,6 +45,7 @@ impl Database {
         )?;
         connection.execute_batch(RELATIONS_MIGRATION)?;
         connection.execute_batch(NOTE_INDEX_MIGRATION)?;
+        ensure_note_index_content_hash(&connection)?;
         Ok(Self {
             connection: Arc::new(Mutex::new(connection)),
         })
@@ -76,6 +77,24 @@ impl Database {
     }
 }
 
+fn ensure_note_index_content_hash(connection: &Connection) -> Result<(), rusqlite::Error> {
+    let mut statement = connection.prepare("PRAGMA table_info(note_index)")?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?;
+    if !columns.iter().any(|column| column == "content_hash") {
+        connection.execute(
+            "ALTER TABLE note_index ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''",
+            [],
+        )?;
+    }
+    connection.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_note_index_file_name ON note_index(file_name)",
+        [],
+    )?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -102,5 +121,30 @@ mod tests {
         ] {
             assert!(tables.iter().any(|candidate| candidate == table));
         }
+    }
+
+    #[test]
+    fn upgrades_a_note_index_created_before_content_hashes() {
+        let connection = Connection::open_in_memory().expect("connection");
+        connection
+            .execute_batch(
+                "CREATE TABLE note_index (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    file_name TEXT NOT NULL
+                );",
+            )
+            .expect("old schema");
+
+        ensure_note_index_content_hash(&connection).expect("upgrade");
+
+        let columns = connection
+            .prepare("PRAGMA table_info(note_index)")
+            .and_then(|mut statement| {
+                statement
+                    .query_map([], |row| row.get::<_, String>(1))?
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .expect("columns");
+        assert!(columns.iter().any(|column| column == "content_hash"));
     }
 }
