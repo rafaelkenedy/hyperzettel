@@ -4,6 +4,16 @@ As mudanças notáveis do Hyperzettel são registradas neste arquivo. O formato
 segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [Unreleased]
+
+### Added
+
+- Primeiro ciclo guiado para vaults vazios: o usuário informa um assunto real e recebe uma nota de estrutura pronta para desenvolver perguntas, ideias e conexões.
+
+### Changed
+
+- A navegação passa a revelar processamento, pastas, estágios, mapa e revisão apenas quando o conteúdo do vault torna cada recurso útil.
+
 ## [0.8.0] - 2026-07-24
 
 ### Changed

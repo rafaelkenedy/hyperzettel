@@ -39,6 +39,7 @@ import {
 } from "@/domain/templates";
 import { formatRelative, toPlainText } from "@/shared/html";
 import { formatShortcut } from "@/shared/platform";
+import { GuidedStart } from "@/features/onboarding";
 
 const TEMPLATE_ICONS: Record<TemplateId, LucideIcon> = {
   blank: FileText,
@@ -219,41 +220,41 @@ export function Dashboard() {
           </div>
           {/* Secundário de propósito: o CTA primário da tela é a ação do
               cartão de foco, para não competirem dois botões escuros. */}
-          <Button
-            variant="secondary"
-            size="sm"
-            className="shrink-0 gap-1.5 border-border-tertiary bg-background-primary text-xs"
-            onClick={() => void notes.newNote()}
-          >
-            <PenLine className="size-3.5" strokeWidth={2} />
-            Nova nota
-          </Button>
+          {hasNotes ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              className="shrink-0 gap-1.5 border-border-tertiary bg-background-primary text-xs"
+              onClick={() => void notes.newNote()}
+            >
+              <PenLine className="size-3.5" strokeWidth={2} />
+              Nova nota
+            </Button>
+          ) : null}
         </header>
 
-        <article className="mt-6 flex items-start gap-4 rounded-xl border border-border-primary bg-background-primary p-5 shadow-panel">
-          <span className={cn("grid size-10 shrink-0 place-items-center rounded-xl", focus.tone)}>
-            <FocusIcon className="size-5" strokeWidth={1.75} />
-          </span>
-          <div className="min-w-0 flex-1">
-            <span className="text-2xs font-medium uppercase tracking-[0.08em] text-text-secondary">
-              {focus.eyebrow}
+        {hasNotes ? (
+          <article className="mt-6 flex items-start gap-4 rounded-xl border border-border-primary bg-background-primary p-5 shadow-panel">
+            <span className={cn("grid size-10 shrink-0 place-items-center rounded-xl", focus.tone)}>
+              <FocusIcon className="size-5" strokeWidth={1.75} />
             </span>
-            <h2 className="mt-1 text-lg font-bold tracking-[-0.01em]">{focus.title}</h2>
-            <p className="mt-1.5 max-w-[46rem] text-xs leading-relaxed text-text-tertiary">
-              {focus.body}
-            </p>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <Button
-                size="sm"
-                className="gap-1.5 border-text-primary bg-text-primary text-xs text-background-primary"
-                onClick={focus.run}
-              >
-                {focus.action}
-                <ArrowRight className="size-3.5" strokeWidth={2} />
-              </Button>
-              {/* No first-run o CTA primário já é a nota em branco, então o
-                  "Escrever livremente" secundário seria redundante. */}
-              {hasNotes ? (
+            <div className="min-w-0 flex-1">
+              <span className="text-2xs font-medium uppercase tracking-[0.08em] text-text-secondary">
+                {focus.eyebrow}
+              </span>
+              <h2 className="mt-1 text-lg font-bold tracking-[-0.01em]">{focus.title}</h2>
+              <p className="mt-1.5 max-w-[46rem] text-xs leading-relaxed text-text-tertiary">
+                {focus.body}
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  className="gap-1.5 border-text-primary bg-text-primary text-xs text-background-primary"
+                  onClick={focus.run}
+                >
+                  {focus.action}
+                  <ArrowRight className="size-3.5" strokeWidth={2} />
+                </Button>
                 <Button
                   variant="secondary"
                   size="sm"
@@ -262,10 +263,12 @@ export function Dashboard() {
                 >
                   Escrever livremente
                 </Button>
-              ) : null}
+              </div>
             </div>
-          </div>
-        </article>
+          </article>
+        ) : (
+          <GuidedStart />
+        )}
 
         {hasNotes ? (
         <section aria-label="Resumo" className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -361,44 +364,48 @@ export function Dashboard() {
         </section>
         ) : null}
 
-        <section className="mt-8">
-          <h2 className="text-md font-bold tracking-[-0.01em]">Comece com uma estrutura</h2>
-          <p className="mt-0.5 text-xs text-text-tertiary">
-            Cada modelo abre a nota já com as seções que aquele tipo de pensamento pede.
-          </p>
+        {hasNotes ? (
+          <section className="mt-8">
+            <h2 className="text-md font-bold tracking-[-0.01em]">Comece com uma estrutura</h2>
+            <p className="mt-0.5 text-xs text-text-tertiary">
+              Cada modelo abre a nota já com as seções que aquele tipo de pensamento pede.
+            </p>
 
-          <div className="mt-4 flex flex-col gap-5">
-            {groups.map((group) => {
-              const templates = TEMPLATES.filter(
-                (template) => template.group === group && template.id !== "blank"
-              );
-              if (!templates.length) return null;
+            <div className="mt-4 flex flex-col gap-5">
+              {groups.map((group) => {
+                const templates = TEMPLATES.filter(
+                  (template) => template.group === group && template.id !== "blank"
+                );
+                if (!templates.length) return null;
 
-              return (
-                <div key={group}>
-                  <div className="mb-2 flex items-baseline gap-2">
-                    <h3 className="text-2xs font-medium uppercase tracking-[0.08em] text-text-secondary">
-                      {TEMPLATE_GROUPS[group].label}
-                    </h3>
-                    <span className="text-2xs text-text-secondary">
-                      {TEMPLATE_GROUPS[group].hint}
-                    </span>
+                return (
+                  <div key={group}>
+                    <div className="mb-2 flex items-baseline gap-2">
+                      <h3 className="text-2xs font-medium uppercase tracking-[0.08em] text-text-secondary">
+                        {TEMPLATE_GROUPS[group].label}
+                      </h3>
+                      <span className="text-2xs text-text-secondary">
+                        {TEMPLATE_GROUPS[group].hint}
+                      </span>
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                      {templates.map((template) => (
+                        <TemplateCard key={template.id} template={template} />
+                      ))}
+                    </div>
                   </div>
-                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                    {templates.map((template) => (
-                      <TemplateCard key={template.id} template={template} />
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
 
-        <footer className="mt-10 border-t border-border-secondary pt-4 text-2xs text-text-secondary">
-          {formatShortcut("N")} nova nota · {formatShortcut("K")} buscar ·{" "}
-          {formatShortcut("G")} mapa de conhecimento
-        </footer>
+        {hasNotes ? (
+          <footer className="mt-10 border-t border-border-secondary pt-4 text-2xs text-text-secondary">
+            {formatShortcut("N")} nova nota · {formatShortcut("K")} buscar
+            {connections ? ` · ${formatShortcut("G")} mapa de conhecimento` : ""}
+          </footer>
+        ) : null}
       </div>
     </section>
   );

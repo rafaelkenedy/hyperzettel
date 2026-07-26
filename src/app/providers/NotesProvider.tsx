@@ -50,6 +50,7 @@ import {
   enqueueNoteIndexing,
   removeNoteFromKnowledgeIndex
 } from "@/features/knowledge";
+import { createGuidedTopicDraft } from "@/features/onboarding/guidedOnboarding";
 
 const AUTOSAVE_DELAY = 700;
 const SESSION_DRAFT_KEY = "hyperzettel-active-draft";
@@ -149,6 +150,7 @@ export interface NotesStore {
   openNote: (id: string) => Promise<void>;
   newNote: () => Promise<void>;
   newNoteFromTemplate: (template: TemplateId) => Promise<void>;
+  startGuidedTopic: (subject: string) => Promise<void>;
   saveNow: () => Promise<void>;
   persistDraft: () => Promise<Note | null>;
   deleteActiveNote: () => Promise<void>;
@@ -364,6 +366,46 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       if (updateHistory) history.pushState({ mode: "new" }, "", "#novo");
     },
     [persistNote, setView]
+  );
+
+  /**
+   * Inicia um vault vazio com uma nota de estrutura sobre um assunto real.
+   * O conteúdo nasce como rascunho e o autosave o materializa no vault; assim
+   * a primeira experiência produz conhecimento do usuário, não dados de demo.
+   */
+  const startGuidedTopic = useCallback(
+    async (subject: string) => {
+      window.clearTimeout(autosaveRef.current);
+      if (dirtyRef.current) {
+        const source = draftRef.current;
+        const meaningful = hasMeaningfulContent(
+          { title: source.title, content: source.content, connections: source.connections },
+          toPlainText
+        );
+        const persisted = await persistNote("draft");
+        if (meaningful && !persisted) return;
+      }
+
+      const guided = createGuidedTopicDraft(subject);
+      const fresh = createNoteRecord({
+        id: createId(),
+        ...guided,
+        status: "draft"
+      });
+
+      revisionRef.current = 0;
+      createdInSessionRef.current = true;
+      setCurrentNote(null);
+      currentNoteRef.current = null;
+      setDraft(fresh);
+      setLoadToken((token) => token + 1);
+      setView("note");
+      writeSessionDraftId(fresh.id);
+      history.pushState({ mode: "guided-start" }, "", "#novo");
+      markDirty();
+      announce("Mapa inicial criado. Complete o objetivo e registre sua primeira pergunta.");
+    },
+    [announce, markDirty, persistNote, setView]
   );
 
   const updateDraft = useCallback(
@@ -802,6 +844,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       openNote: (id: string) => openNote(id),
       newNote: () => newNote(),
       newNoteFromTemplate,
+      startGuidedTopic,
       saveNow,
       persistDraft,
       deleteActiveNote,
@@ -816,7 +859,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       connectionCounts, relations, folderCounts, kindCounts, scope, query,
       dirty, saving, ready, loadToken, setTitle, setContent, setFolder,
       setTemplate, setKind, addConnection, toggleConnection, setConnectionReason,
-      removeConnection, openNote, newNote, newNoteFromTemplate, saveNow,
+      removeConnection, openNote, newNote, newNoteFromTemplate, startGuidedTopic, saveNow,
       persistDraft, deleteActiveNote, patchNote, removeNote, splitNote,
       reload, adoptImported
     ]
