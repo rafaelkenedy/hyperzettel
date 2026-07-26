@@ -66,4 +66,21 @@ describe("FirstCycleCoach", () => {
     await waitFor(() => expect(mocks.persistDraft).toHaveBeenCalledOnce());
     expect(mocks.setView).toHaveBeenCalledWith("process");
   });
+
+  test("repete a captura até formar três ideias conectadas", () => {
+    const structure = createNoteRecord({ id: "map", kind: "structure" });
+    const connected = createNoteRecord({
+      id: "idea",
+      kind: "permanent",
+      connections: [{ id: structure.id, reason: "Explica uma parte do mapa." }]
+    });
+    mocks.notes = [structure, connected];
+    mocks.draft = connected;
+
+    render(<FirstCycleCoach />);
+    expect(screen.getByText(/1 de 3 ideias conectadas/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Criar próxima captura" }));
+
+    expect(mocks.newNote).toHaveBeenCalledOnce();
+  });
 });

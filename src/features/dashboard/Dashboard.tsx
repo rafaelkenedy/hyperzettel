@@ -206,7 +206,7 @@ export function Dashboard() {
           : firstCycle?.stage === "connect"
             ? {
                 eyebrow: "Primeiro ciclo",
-                title: "Falta explicar a primeira conexão",
+                title: `Falta explicar a conexão ${firstCycle.connectedCount + 1} de ${firstCycle.targetCount}`,
                 body: "Abra a nota permanente, conecte-a ao mapa inicial e registre por que as duas ideias se relacionam.",
                 action: "Abrir nota permanente",
                 run: () =>
@@ -216,11 +216,21 @@ export function Dashboard() {
                 tone: "bg-[#efecfd] text-[#6a4fd0]",
                 icon: Link2
               }
-            : firstCycle?.stage === "complete"
+            : firstCycle?.stage === "expand"
+              ? {
+                  eyebrow: "Primeiro ciclo",
+                  title: `${firstCycle.connectedCount} de ${firstCycle.targetCount} ideias conectadas`,
+                  body: "Crie outra captura pequena e repita o processamento. Três ideias bastam para enxergar um conjunto, não apenas notas isoladas.",
+                  action: "Criar próxima captura",
+                  run: () => void notes.newNote(),
+                  tone: "bg-[#e9eefb] text-[#2f5aa8]",
+                  icon: ListTree
+                }
+              : firstCycle?.stage === "complete"
               ? {
                   eyebrow: "Primeiro ciclo concluído",
                   title: "Você já tem uma linha de pensamento",
-                  body: "O mapa, a nota permanente e o motivo da conexão formam a primeira unidade reutilizável do seu vault.",
+                  body: "O mapa, três notas permanentes e os motivos das conexões formam seu primeiro conjunto reutilizável.",
                   action: "Ver no mapa",
                   run: () => navigation.toggleMap("explore"),
                   tone: "bg-[#e8f4ec] text-[#1c6b45]",

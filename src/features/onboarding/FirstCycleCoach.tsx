@@ -39,9 +39,33 @@ export function FirstCycleCoach() {
       <aside className={common} aria-label="Primeiro ciclo">
         <PenLine className="size-4 shrink-0 text-hz-accent" strokeWidth={1.8} />
         <p className="text-xs text-text-tertiary">
-          <strong className="text-text-primary">Uma ideia por nota.</strong> Dê um título,
-          explique com suas palavras e conclua o rascunho.
+          <strong className="text-text-primary">
+            Ideia {progress.connectedCount + 1} de {progress.targetCount}.
+          </strong>{" "}
+          Dê um título, explique com suas palavras e conclua o rascunho.
         </p>
+      </aside>
+    );
+  }
+
+  if (progress.stage === "expand") {
+    return (
+      <aside className={common} aria-label="Primeiro ciclo">
+        <ListTree className="size-4 shrink-0 text-hz-accent" strokeWidth={1.8} />
+        <p className="min-w-0 flex-1 text-xs text-text-tertiary">
+          <strong className="text-text-primary">
+            {progress.connectedCount} de {progress.targetCount} ideias conectadas.
+          </strong>{" "}
+          Adicione mais uma ideia para formar um pequeno conjunto reutilizável.
+        </p>
+        <Button
+          size="sm"
+          className="h-7 shrink-0 gap-1.5 border-text-primary bg-text-primary px-2.5 text-2xs text-background-primary"
+          onClick={() => void notes.newNote()}
+        >
+          <PenLine className="size-3" strokeWidth={2} />
+          Criar próxima captura
+        </Button>
       </aside>
     );
   }
@@ -51,8 +75,10 @@ export function FirstCycleCoach() {
       <aside className={common} aria-label="Primeiro ciclo">
         <Sparkles className="size-4 shrink-0 text-hz-accent" strokeWidth={1.8} />
         <p className="min-w-0 flex-1 text-xs text-text-tertiary">
-          <strong className="text-text-primary">Captura feita.</strong> Agora transforme-a em
-          uma nota permanente e conecte-a ao mapa.
+          <strong className="text-text-primary">
+            Captura {progress.connectedCount + 1} de {progress.targetCount} feita.
+          </strong>{" "}
+          Agora transforme-a em uma nota permanente e conecte-a ao mapa.
         </p>
         <Button
           size="sm"
@@ -86,8 +112,8 @@ export function FirstCycleCoach() {
     <aside className={common} aria-label="Primeiro ciclo concluído">
       <Check className="size-4 shrink-0 text-[#1c6b45]" strokeWidth={2} />
       <p className="min-w-0 flex-1 text-xs text-text-tertiary">
-        <strong className="text-text-primary">Primeiro ciclo concluído.</strong> Você criou uma
-        ideia permanente e registrou como ela se conecta ao seu mapa.
+        <strong className="text-text-primary">Primeiro ciclo concluído.</strong> Você criou
+        três ideias permanentes e registrou como elas se conectam ao seu mapa.
       </p>
       <Button
         variant="secondary"

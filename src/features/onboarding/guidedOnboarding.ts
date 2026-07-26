@@ -18,12 +18,22 @@ export interface ProgressiveNavigation {
   showReview: boolean;
 }
 
-export type FirstCycleStage = "capture" | "write" | "process" | "connect" | "complete";
+export const FIRST_CYCLE_IDEA_TARGET = 3;
+
+export type FirstCycleStage =
+  | "capture"
+  | "write"
+  | "process"
+  | "connect"
+  | "expand"
+  | "complete";
 
 export interface FirstCycleProgress {
   stage: FirstCycleStage;
   structureId: string;
   captureId?: string;
+  connectedCount: number;
+  targetCount: number;
 }
 
 export function normalizeGuidedSubject(value: string): string {
@@ -80,7 +90,7 @@ export function firstCycleProgressFor(
   notes: readonly Note[],
   activeDraftId?: string
 ): FirstCycleProgress | null {
-  if (notes.length > 4) return null;
+  if (notes.length > 6) return null;
 
   const structure = [...notes]
     .filter((note) => note.kind === "structure")
@@ -91,27 +101,68 @@ export function firstCycleProgressFor(
   if (!candidates.length) {
     return {
       stage: activeDraftId && activeDraftId !== structure.id ? "write" : "capture",
-      structureId: structure.id
+      structureId: structure.id,
+      connectedCount: 0,
+      targetCount: FIRST_CYCLE_IDEA_TARGET
     };
   }
 
-  const connected = candidates.find((note) => {
+  const connected = candidates.filter((note) => {
     const outgoing = note.connections.find((connection) => connection.id === structure.id);
     const incoming = structure.connections.find((connection) => connection.id === note.id);
-    return Boolean(outgoing?.reason.trim() || incoming?.reason.trim());
+    return (
+      note.kind === "permanent" &&
+      Boolean(outgoing?.reason.trim() || incoming?.reason.trim())
+    );
   });
-  if (connected?.kind === "permanent") {
-    return { stage: "complete", structureId: structure.id, captureId: connected.id };
+  if (connected.length >= FIRST_CYCLE_IDEA_TARGET) {
+    return {
+      stage: "complete",
+      structureId: structure.id,
+      captureId: connected[0]?.id,
+      connectedCount: connected.length,
+      targetCount: FIRST_CYCLE_IDEA_TARGET
+    };
   }
 
-  const permanent = candidates.find((note) => note.kind === "permanent");
+  const connectedIds = new Set(connected.map((note) => note.id));
+  const permanent = candidates.find(
+    (note) => note.kind === "permanent" && !connectedIds.has(note.id)
+  );
   if (permanent) {
-    return { stage: "connect", structureId: structure.id, captureId: permanent.id };
+    return {
+      stage: "connect",
+      structureId: structure.id,
+      captureId: permanent.id,
+      connectedCount: connected.length,
+      targetCount: FIRST_CYCLE_IDEA_TARGET
+    };
+  }
+
+  const unprocessed = candidates.find((note) => !connectedIds.has(note.id));
+  if (unprocessed) {
+    return {
+      stage: "process",
+      structureId: structure.id,
+      captureId: unprocessed.id,
+      connectedCount: connected.length,
+      targetCount: FIRST_CYCLE_IDEA_TARGET
+    };
+  }
+
+  if (activeDraftId && !notes.some((note) => note.id === activeDraftId)) {
+    return {
+      stage: "write",
+      structureId: structure.id,
+      connectedCount: connected.length,
+      targetCount: FIRST_CYCLE_IDEA_TARGET
+    };
   }
 
   return {
-    stage: "process",
+    stage: connected.length ? "expand" : "capture",
     structureId: structure.id,
-    captureId: candidates[0]?.id
+    connectedCount: connected.length,
+    targetCount: FIRST_CYCLE_IDEA_TARGET
   };
 }

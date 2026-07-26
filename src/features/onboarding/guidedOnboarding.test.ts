@@ -85,14 +85,19 @@ describe("onboarding guiado", () => {
     expect(
       firstCycleProgressFor([structure, { ...capture, kind: "permanent" }])?.stage
     ).toBe("connect");
+    const connected = (id: string) => ({
+      ...capture,
+      id,
+      kind: "permanent" as const,
+      connections: [{ id: structure.id, reason: "Responde à pergunta central." }]
+    });
+    expect(firstCycleProgressFor([structure, connected("one")])?.stage).toBe("expand");
     expect(
       firstCycleProgressFor([
         structure,
-        {
-          ...capture,
-          kind: "permanent",
-          connections: [{ id: structure.id, reason: "Responde à pergunta central." }]
-        }
+        connected("one"),
+        connected("two"),
+        connected("three")
       ])?.stage
     ).toBe("complete");
   });

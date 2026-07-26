@@ -9,7 +9,8 @@ segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 ### Added
 
 - Primeiro ciclo guiado para vaults vazios: o usuário informa um assunto real e recebe uma nota de estrutura pronta para desenvolver perguntas, ideias e conexões.
-- Orientação contextual conduz do mapa inicial à primeira captura, ao processamento e à primeira conexão justificada, encerrando com a visualização da linha de pensamento criada.
+- Orientação contextual repete captura, processamento e conexão até formar um primeiro conjunto com três ideias permanentes ligadas ao mapa.
+- Notas de estrutura exibem uma seção derivada com as ideias conectadas e seus motivos, permitindo navegar pelo conjunto sem duplicar conteúdo entre arquivos.
 
 ### Changed
 

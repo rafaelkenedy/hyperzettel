@@ -42,6 +42,7 @@ import { formatShortcut } from "@/shared/platform";
 import { slugify } from "@/shared/slug";
 import { KindBadge } from "./KindBadge";
 import { FirstCycleCoach } from "@/features/onboarding/FirstCycleCoach";
+import { StructureConnections } from "@/features/onboarding/StructureConnections";
 
 export function EditorPane({
   onToggleNotes,
@@ -319,6 +320,8 @@ export function EditorPane({
               }}
               className="hz-prose min-h-[24rem] pb-10"
             />
+
+            <StructureConnections />
           </div>
         </div>
 
