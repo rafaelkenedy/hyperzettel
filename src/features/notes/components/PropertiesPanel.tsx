@@ -42,6 +42,7 @@ import {
   type TemplateId
 } from "@/domain/notes";
 import { countWords, formatFullDate, formatRelative } from "@/shared/html";
+import { formatShortcut } from "@/shared/platform";
 import { ConnectionsDialog } from "./ConnectionsDialog";
 import {
   LEVEL_TONE,
@@ -331,7 +332,7 @@ export function PropertiesPanel({ onClose }: { onClose?: () => void } = {}) {
           >
             <Plus className="size-3.5" strokeWidth={2} />
             Adicionar conexão
-            <span className="ml-1 text-2xs opacity-60">⌘⇧K</span>
+            <span className="ml-1 text-2xs opacity-60">{formatShortcut("Shift+K")}</span>
           </Button>
         </div>
 
@@ -370,7 +371,18 @@ export function PropertiesPanel({ onClose }: { onClose?: () => void } = {}) {
 
         <CollapsibleSection icon={Brain} label="Aprendizagem">
           <div className="px-4 pt-1">
-            {knowledge.activeRetention ? (
+            {!knowledge.activeRetention ? (
+              <p className="py-1 text-xs text-text-secondary">
+                Salve a nota para acompanhar a retenção.
+              </p>
+            ) : notes.draft.kind === "fleeting" ? (
+              // Nota fugaz ainda não foi destilada; revisar só faz sentido depois
+              // que ela vira permanente. Evita oferecer uma ação fora do estágio.
+              <p className="py-1 text-xs text-text-secondary">
+                A revisão espaçada começa quando a nota deixa de ser fugaz — processe-a
+                para uma nota permanente primeiro.
+              </p>
+            ) : (
               <>
                 {knowledge.activeRetention.reviewCount ? (
                   <div className="flex items-center gap-2">
@@ -390,10 +402,6 @@ export function PropertiesPanel({ onClose }: { onClose?: () => void } = {}) {
                   <ReviewGrades noteId={notes.draft.id} />
                 </div>
               </>
-            ) : (
-              <p className="py-1 text-xs text-text-secondary">
-                Salve a nota para acompanhar a retenção.
-              </p>
             )}
           </div>
         </CollapsibleSection>

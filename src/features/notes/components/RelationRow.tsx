@@ -2,7 +2,7 @@
  * Uma linha por nota relacionada.
  *
  * Conexão é uma aresta sem direção, então a nota aparece uma vez só. A seta
- * diz de onde a relação partiu, e o motivo é editável pelo lado de cá — se a
+ * diz de onde a relação partiu, e o motivo é editável pelo lado de cá - se a
  * conexão só existe do outro lado, escrever um motivo cria a volta.
  */
 
@@ -91,7 +91,7 @@ export function RelationRow({
       {/* O motivo da outra ponta é leitura: pertence a quem escreveu. */}
       {incomingReason ? (
         <p className="mt-0.5 truncate px-1.5 text-xs text-text-tertiary" title={incomingReason}>
-          Do outro lado: {incomingReason}
+          Motivo da outra nota: {incomingReason}
         </p>
       ) : null}
     </div>
