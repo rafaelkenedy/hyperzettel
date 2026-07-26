@@ -9,10 +9,16 @@ segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 ### Added
 
 - Primeiro ciclo guiado para vaults vazios: o usuário informa um assunto real e recebe uma nota de estrutura pronta para desenvolver perguntas, ideias e conexões.
+- Orientação contextual conduz do mapa inicial à primeira captura, ao processamento e à primeira conexão justificada, encerrando com a visualização da linha de pensamento criada.
 
 ### Changed
 
 - A navegação passa a revelar processamento, pastas, estágios, mapa e revisão apenas quando o conteúdo do vault torna cada recurso útil.
+
+### Fixed
+
+- Uma captura promovida para nota permanente continua no fluxo até os passos de conexão e conclusão, em vez de desaparecer ao sair da caixa de entrada.
+- O seletor de conexões abre dentro do processamento e persiste o motivo informado sem desmontar a tela atual.
 
 ## [0.8.0] - 2026-07-24
 

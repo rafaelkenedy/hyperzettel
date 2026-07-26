@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import { createNoteRecord } from "@/domain/notes";
 import {
   createGuidedTopicDraft,
+  firstCycleProgressFor,
   normalizeGuidedSubject,
   progressiveNavigationFor
 } from "./guidedOnboarding";
@@ -60,5 +61,39 @@ describe("onboarding guiado", () => {
     expect(
       progressiveNavigationFor([{ ...structure, status: "saved" }]).showReview
     ).toBe(true);
+  });
+
+  test("deriva o primeiro ciclo das notas reais até a conexão justificada", () => {
+    const structure = createNoteRecord({
+      id: "structure",
+      title: "Mapa",
+      kind: "structure",
+      status: "saved",
+      createdAt: "2026-01-01T00:00:00.000Z"
+    });
+    const capture = createNoteRecord({
+      id: "capture",
+      title: "Ideia",
+      kind: "fleeting",
+      status: "saved",
+      createdAt: "2026-01-02T00:00:00.000Z"
+    });
+
+    expect(firstCycleProgressFor([structure], structure.id)?.stage).toBe("capture");
+    expect(firstCycleProgressFor([structure], "new-draft")?.stage).toBe("write");
+    expect(firstCycleProgressFor([structure, capture])?.stage).toBe("process");
+    expect(
+      firstCycleProgressFor([structure, { ...capture, kind: "permanent" }])?.stage
+    ).toBe("connect");
+    expect(
+      firstCycleProgressFor([
+        structure,
+        {
+          ...capture,
+          kind: "permanent",
+          connections: [{ id: structure.id, reason: "Responde à pergunta central." }]
+        }
+      ])?.stage
+    ).toBe("complete");
   });
 });

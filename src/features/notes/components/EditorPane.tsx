@@ -41,6 +41,7 @@ import { optimizeImageToDataUrl } from "@/infrastructure/imageOptimizer";
 import { formatShortcut } from "@/shared/platform";
 import { slugify } from "@/shared/slug";
 import { KindBadge } from "./KindBadge";
+import { FirstCycleCoach } from "@/features/onboarding/FirstCycleCoach";
 
 export function EditorPane({
   onToggleNotes,
@@ -272,6 +273,8 @@ export function EditorPane({
             />
           </div>
         </header>
+
+        <FirstCycleCoach />
 
         <div className="hz-scroll min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto w-full max-w-[46rem] px-6 pb-24 pt-8 sm:px-10 sm:pt-9">

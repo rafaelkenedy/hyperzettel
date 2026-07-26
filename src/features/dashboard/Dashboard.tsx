@@ -19,6 +19,7 @@ import {
   Inbox,
   Lightbulb,
   Link2,
+  ListTree,
   PenLine,
   Signpost,
   Target,
@@ -40,6 +41,7 @@ import {
 import { formatRelative, toPlainText } from "@/shared/html";
 import { formatShortcut } from "@/shared/platform";
 import { GuidedStart } from "@/features/onboarding";
+import { firstCycleProgressFor } from "@/features/onboarding/guidedOnboarding";
 
 const TEMPLATE_ICONS: Record<TemplateId, LucideIcon> = {
   blank: FileText,
@@ -161,13 +163,71 @@ export function Dashboard() {
   // Primeira execução: sem notas, um painel de métricas zeradas e um "Retomar"
   // vazio só reforçam o vazio. Nesse estado a home lidera com a ação de criar.
   const hasNotes = notes.notes.length > 0;
+  const firstCycle = firstCycleProgressFor(notes.notes, notes.draft.id);
 
   /**
    * O cartão de foco responde ao estado real: revisar vem antes de organizar,
    * que vem antes de escrever. Sem isso a home dizia a mesma coisa todo dia.
    */
-  const focus = reviewDue
-    ? {
+  const focus =
+    firstCycle?.stage === "capture"
+      ? {
+          eyebrow: "Primeiro ciclo",
+          title: "Seu mapa precisa da primeira ideia",
+          body: "Capture uma ideia pequena que responda a uma das perguntas do mapa. Você vai refiná-la e conectar as duas em seguida.",
+          action: "Criar primeira captura",
+          run: () => void notes.newNote(),
+          tone: "bg-[#e9eefb] text-[#2f5aa8]",
+          icon: ListTree
+        }
+      : firstCycle?.stage === "write"
+        ? {
+            eyebrow: "Primeiro ciclo",
+            title: "Termine sua primeira captura",
+            body: "Escreva uma ideia em suas palavras. Um título e uma explicação curta já bastam para continuar.",
+            action: "Voltar ao rascunho",
+            run: () => navigation.setView("note"),
+            tone: "bg-[#e9eefb] text-[#2f5aa8]",
+            icon: PenLine
+          }
+        : firstCycle?.stage === "process"
+          ? {
+              eyebrow: "Primeiro ciclo",
+              title: "Transforme a captura em conhecimento",
+              body: "O processamento ajuda a verificar origem, clareza e atomicidade antes de promover a ideia.",
+              action: "Processar captura",
+              run: () =>
+                void notes.persistDraft().then((persisted) => {
+                  if (persisted) navigation.setView("process");
+                }),
+              tone: "bg-[#fdf1dd] text-[#8a5a12]",
+              icon: Inbox
+            }
+          : firstCycle?.stage === "connect"
+            ? {
+                eyebrow: "Primeiro ciclo",
+                title: "Falta explicar a primeira conexão",
+                body: "Abra a nota permanente, conecte-a ao mapa inicial e registre por que as duas ideias se relacionam.",
+                action: "Abrir nota permanente",
+                run: () =>
+                  firstCycle.captureId
+                    ? void notes.openNote(firstCycle.captureId)
+                    : navigation.setView("note"),
+                tone: "bg-[#efecfd] text-[#6a4fd0]",
+                icon: Link2
+              }
+            : firstCycle?.stage === "complete"
+              ? {
+                  eyebrow: "Primeiro ciclo concluído",
+                  title: "Você já tem uma linha de pensamento",
+                  body: "O mapa, a nota permanente e o motivo da conexão formam a primeira unidade reutilizável do seu vault.",
+                  action: "Ver no mapa",
+                  run: () => navigation.toggleMap("explore"),
+                  tone: "bg-[#e8f4ec] text-[#1c6b45]",
+                  icon: Link2
+                }
+              : reviewDue
+                ? {
         eyebrow: "Sua memória pede atenção",
         title: `${reviewDue} ${reviewDue === 1 ? "nota está esfriando" : "notas estão esfriando"}`,
         body: "A retenção estimada dessas notas caiu abaixo de 55%. Revisar reforça a nota e todas as conexões ligadas a ela.",
@@ -175,9 +235,9 @@ export function Dashboard() {
         run: () => navigation.toggleMap("review"),
         tone: "bg-[#fdeef1] text-[#a3324c]",
         icon: Brain
-      }
-    : inboxCount
-      ? {
+                  }
+                : inboxCount
+                  ? {
           eyebrow: "Caixa de entrada",
           title: `${inboxCount} ${inboxCount === 1 ? "nota esperando destino" : "notas esperando destino"}`,
           body: "Processar a entrada é o que impede a captura de virar acúmulo. O fluxo pergunta uma coisa de cada vez até a ideia virar nota conectada.",
@@ -185,8 +245,8 @@ export function Dashboard() {
           run: () => navigation.setView("process"),
           tone: "bg-[#fdf1dd] text-[#8a5a12]",
           icon: Inbox
-        }
-      : {
+                    }
+                  : {
           eyebrow: hasNotes ? "Tudo em dia" : "Primeiros passos",
           title: hasNotes ? "Nada pendente, o espaço é seu" : "Comece pela primeira nota",
           body: hasNotes
@@ -199,8 +259,8 @@ export function Dashboard() {
             ? () => void notes.newNoteFromTemplate("daily")
             : () => void notes.newNote(),
           tone: "bg-[#e8f4ec] text-[#1c6b45]",
-          icon: PenLine
-        };
+                      icon: PenLine
+                    };
 
   const FocusIcon = focus.icon;
 

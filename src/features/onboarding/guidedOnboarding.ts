@@ -18,6 +18,14 @@ export interface ProgressiveNavigation {
   showReview: boolean;
 }
 
+export type FirstCycleStage = "capture" | "write" | "process" | "connect" | "complete";
+
+export interface FirstCycleProgress {
+  stage: FirstCycleStage;
+  structureId: string;
+  captureId?: string;
+}
+
 export function normalizeGuidedSubject(value: string): string {
   return value.trim().replace(/\s+/g, " ").slice(0, MAX_SUBJECT_LENGTH);
 }
@@ -56,7 +64,54 @@ export function progressiveNavigationFor(notes: readonly Note[]): ProgressiveNav
     folderIds,
     kindIds,
     showProcess: notes.some((note) => note.folder === "inbox" || note.kind === "fleeting"),
-    showMap: notes.some((note) => note.connections.length > 0),
+    showMap: notes.some((note) =>
+      note.connections.some((connection) => connection.reason.trim().length > 0)
+    ),
     showReview: notes.some((note) => note.status === "saved" && note.kind !== "fleeting")
+  };
+}
+
+/**
+ * O guia só acompanha vaults pequenos: depois de quatro notas o próprio
+ * conteúdo já oferece contexto suficiente e o coach deixa de competir com o
+ * trabalho real. O estágio é derivado das notas, nunca de um checklist salvo.
+ */
+export function firstCycleProgressFor(
+  notes: readonly Note[],
+  activeDraftId?: string
+): FirstCycleProgress | null {
+  if (notes.length > 4) return null;
+
+  const structure = [...notes]
+    .filter((note) => note.kind === "structure")
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt))[0];
+  if (!structure) return null;
+
+  const candidates = notes.filter((note) => note.id !== structure.id);
+  if (!candidates.length) {
+    return {
+      stage: activeDraftId && activeDraftId !== structure.id ? "write" : "capture",
+      structureId: structure.id
+    };
+  }
+
+  const connected = candidates.find((note) => {
+    const outgoing = note.connections.find((connection) => connection.id === structure.id);
+    const incoming = structure.connections.find((connection) => connection.id === note.id);
+    return Boolean(outgoing?.reason.trim() || incoming?.reason.trim());
+  });
+  if (connected?.kind === "permanent") {
+    return { stage: "complete", structureId: structure.id, captureId: connected.id };
+  }
+
+  const permanent = candidates.find((note) => note.kind === "permanent");
+  if (permanent) {
+    return { stage: "connect", structureId: structure.id, captureId: permanent.id };
+  }
+
+  return {
+    stage: "process",
+    structureId: structure.id,
+    captureId: candidates[0]?.id
   };
 }

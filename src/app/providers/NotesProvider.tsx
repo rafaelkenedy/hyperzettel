@@ -147,7 +147,7 @@ export interface NotesStore {
   toggleConnection: (noteId: string) => void;
   setConnectionReason: (noteId: string, reason: string) => void;
   removeConnection: (noteId: string) => void;
-  openNote: (id: string) => Promise<void>;
+  openNote: (id: string, options?: { navigate?: boolean }) => Promise<void>;
   newNote: () => Promise<void>;
   newNoteFromTemplate: (template: TemplateId) => Promise<void>;
   startGuidedTopic: (subject: string) => Promise<void>;
@@ -285,8 +285,11 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   }, [persistNote]);
 
   const openNote = useCallback(
-    async (id: string, options: { updateHistory?: boolean } = {}) => {
-      const { updateHistory = true } = options;
+    async (
+      id: string,
+      options: { updateHistory?: boolean; navigate?: boolean } = {}
+    ) => {
+      const { updateHistory = true, navigate = true } = options;
       if (!id) return;
 
       window.clearTimeout(autosaveRef.current);
@@ -305,8 +308,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         // A nota já está carregada; não recarrega (preserva o cursor), mas
         // ainda navega para a tela da nota — senão, clicá-la a partir do Início
         // não fazia nada, porque o `return` pulava o `setView("note")`.
-        setView("note");
-        if (updateHistory) history.pushState({ id }, "", `#${id}`);
+        if (navigate) setView("note");
+        if (navigate && updateHistory) history.pushState({ id }, "", `#${id}`);
         return;
       }
 
@@ -330,10 +333,10 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       setDraft({ ...note, title: note.title === "Sem título" ? "" : note.title });
       setDirty(false);
       setLoadToken((token) => token + 1);
-      setView("note");
+      if (navigate) setView("note");
       writeSessionDraftId(id);
       document.title = `${note.title || "Novo Zettel"} · Hyperzettel`;
-      if (updateHistory) history.pushState({ id }, "", `#${id}`);
+      if (navigate && updateHistory) history.pushState({ id }, "", `#${id}`);
     },
     [announce, persistNote, setView]
   );
@@ -841,7 +844,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       toggleConnection,
       setConnectionReason,
       removeConnection,
-      openNote: (id: string) => openNote(id),
+      openNote: (id: string, options?: { navigate?: boolean }) => openNote(id, options),
       newNote: () => newNote(),
       newNoteFromTemplate,
       startGuidedTopic,
