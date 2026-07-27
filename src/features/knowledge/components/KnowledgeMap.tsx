@@ -151,7 +151,12 @@ export function KnowledgeMap() {
             </TabsContent>
 
             <TabsContent value="review" className="mt-3">
-              <ReviewQueue selectedId={selectedId} onFocus={focusNote} />
+              <ReviewQueue
+                selectedId={selectedId}
+                onFocus={focusNote}
+                requestedId={navigation.reviewTargetId}
+                onRequestConsumed={navigation.clearReviewTarget}
+              />
             </TabsContent>
           </div>
         </Tabs>

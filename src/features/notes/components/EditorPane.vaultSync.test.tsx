@@ -10,6 +10,8 @@ import { EditorPane } from "./EditorPane";
 
 const mocks = vi.hoisted(() => ({
   reloadExternalChanges: vi.fn(),
+  openReview: vi.fn(),
+  activeRetention: null as { strength: number } | null,
   saveNow: vi.fn(),
   setTitle: vi.fn(),
   setContent: vi.fn(),
@@ -48,11 +50,11 @@ vi.mock("@/app/providers/NotesProvider", () => ({
 }));
 
 vi.mock("@/app/providers/KnowledgeProvider", () => ({
-  useKnowledge: () => ({ activeRetention: null })
+  useKnowledge: () => ({ activeRetention: mocks.activeRetention })
 }));
 
 vi.mock("@/app/providers/NavigationProvider", () => ({
-  useNavigation: () => ({ toggleMap: vi.fn() })
+  useNavigation: () => ({ toggleMap: vi.fn(), openReview: mocks.openReview })
 }));
 
 vi.mock("@/app/providers/AnnouncerProvider", () => ({
@@ -75,10 +77,13 @@ afterEach(cleanup);
 
 beforeEach(() => {
   mocks.reloadExternalChanges.mockReset();
+  mocks.openReview.mockReset();
   mocks.notes.externalVaultChange = true;
   mocks.notes.draft.title = "Rascunho local";
   mocks.notes.draft.content = "<p>conteúdo</p>";
+  mocks.notes.draft.kind = "fleeting";
   mocks.notes.draft.template = "blank";
+  mocks.activeRetention = null;
 });
 
 test("oferece preservar a cópia local quando o vault muda durante a edição", () => {
@@ -120,4 +125,19 @@ test("desabilita a conclusão enquanto a nota contém apenas o scaffolding", () 
       }) as HTMLButtonElement
     ).disabled
   ).toBe(true);
+});
+
+test("abre uma revisão avulsa para a nota atual", () => {
+  mocks.notes.externalVaultChange = false;
+  mocks.notes.draft.kind = "permanent";
+  mocks.activeRetention = { strength: 0.92 };
+
+  render(<EditorPane />);
+
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: "Abrir revisão ativa · retenção 92%"
+    })
+  );
+  expect(mocks.openReview).toHaveBeenCalledWith("draft-id");
 });

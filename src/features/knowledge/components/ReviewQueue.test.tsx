@@ -11,6 +11,7 @@ import { ReviewQueue } from "./ReviewQueue";
 
 const mocks = vi.hoisted(() => ({
   openNote: vi.fn(),
+  consumeRequest: vi.fn(),
   snapshot: null as KnowledgeSnapshot | null,
   savedNotes: [] as Array<{
     id: string;
@@ -91,8 +92,21 @@ function Harness() {
   return <ReviewQueue selectedId={selectedId} onFocus={setSelectedId} />;
 }
 
+function RequestedHarness({ noteId }: { noteId: string }) {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  return (
+    <ReviewQueue
+      selectedId={selectedId}
+      onFocus={setSelectedId}
+      requestedId={noteId}
+      onRequestConsumed={mocks.consumeRequest}
+    />
+  );
+}
+
 beforeEach(() => {
   mocks.openNote.mockReset().mockResolvedValue(undefined);
+  mocks.consumeRequest.mockReset();
   mocks.savedNotes = [];
 });
 
@@ -137,5 +151,31 @@ describe("ReviewQueue", () => {
     expect(screen.getByText("Tudo em dia")).toBeTruthy();
     expect(screen.getByText("Nenhuma revisão está vencida agora.")).toBeTruthy();
     expect(screen.queryByText("Ainda fresca")).toBeNull();
+  });
+
+  test("abre somente a nota escolhida quando a revisão parte do editor", async () => {
+    const fresh = graphNote(
+      "futura",
+      "Ainda fresca",
+      "2026-05-04T12:00:00.000Z",
+      0.9
+    );
+    const overdue = graphNote("vencida", "Outra vencida", "2026-05-01T12:00:00.000Z");
+    mocks.snapshot = snapshot([fresh, overdue]);
+    mocks.savedNotes = [
+      { id: "futura", title: "Ainda fresca", content: "Resposta", recallPrompt: "" },
+      { id: "vencida", title: "Outra vencida", content: "Outra", recallPrompt: "" }
+    ];
+
+    render(<RequestedHarness noteId="futura" />);
+
+    await screen.findByRole("button", { name: "Avaliar Ainda fresca" });
+    expect(screen.queryByText("Outra vencida")).toBeNull();
+    expect(screen.getByText(/Revisão escolhida/)).toBeTruthy();
+    expect(mocks.consumeRequest).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole("button", { name: "Avaliar Ainda fresca" }));
+    await screen.findByText("Sessão concluída");
+    expect(screen.getByText("1 nota revisada.")).toBeTruthy();
   });
 });

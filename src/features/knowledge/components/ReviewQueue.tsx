@@ -25,10 +25,14 @@ const YEAR = 365 * 86_400_000;
 
 export function ReviewQueue({
   selectedId,
-  onFocus
+  onFocus,
+  requestedId = null,
+  onRequestConsumed
 }: {
   selectedId: string | null;
   onFocus: (id: string | null) => void;
+  requestedId?: string | null;
+  onRequestConsumed?: () => void;
 }) {
   const notes = useNotes();
   const knowledge = useKnowledge();
@@ -50,15 +54,45 @@ export function ReviewQueue({
       )
       .slice(0, QUEUE_SIZE);
   }, [knowledge.snapshot.at, knowledge.snapshot.notes]);
+  const requestedCandidate = requestedId
+    ? knowledge.snapshot.notes.find(
+        (note) => note.id === requestedId && isReviewEligible(note)
+      )
+    : undefined;
 
   /*
    * A sessão captura a fila vencida ao abrir. Assim avaliar uma nota não faz a
    * próxima posição ser preenchida por outra e o usuário tem um fim alcançável.
    */
   const [sessionIds, setSessionIds] = useState<string[]>(() =>
-    dueCandidates.map((note) => note.id)
+    requestedCandidate
+      ? [requestedCandidate.id]
+      : dueCandidates.map((note) => note.id)
   );
   const [reviewedIds, setReviewedIds] = useState<Set<string>>(() => new Set());
+  const [sessionMode, setSessionMode] = useState<"due" | "targeted">(
+    requestedCandidate ? "targeted" : "due"
+  );
+
+  /*
+   * O editor expressa uma intenção diferente da fila automática: revisar esta
+   * nota agora. A sessão avulsa contém somente o alvo e não altera a regra de
+   * vencimento usada pela fila normal.
+   */
+  useEffect(() => {
+    if (!requestedId) return;
+
+    const requested = knowledge.snapshot.notes.find(
+      (note) => note.id === requestedId && isReviewEligible(note)
+    );
+    if (requested) {
+      setSessionIds([requested.id]);
+      setReviewedIds(new Set());
+      setSessionMode("targeted");
+      onFocus(requested.id);
+    }
+    onRequestConsumed?.();
+  }, [knowledge.snapshot.notes, onFocus, onRequestConsumed, requestedId]);
 
   useEffect(() => {
     if (!sessionIds.length && !reviewedIds.size && dueCandidates.length) {
@@ -153,7 +187,9 @@ export function ReviewQueue({
       </div>
 
       <p className="mb-2 text-2xs leading-relaxed text-text-secondary">
-        Vencidas primeiro. Tente explicar a ideia e só então revele a resposta.
+        {sessionMode === "targeted"
+          ? "Revisão escolhida. Tente explicar a ideia e só então revele a resposta."
+          : "Vencidas primeiro. Tente explicar a ideia e só então revele a resposta."}
       </p>
 
       <ul className="flex flex-col gap-1">

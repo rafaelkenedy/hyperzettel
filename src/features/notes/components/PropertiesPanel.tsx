@@ -437,7 +437,7 @@ export function PropertiesPanel({ onClose }: { onClose?: () => void } = {}) {
                       variant="secondary"
                       size="sm"
                       className="mt-2 h-8 border-border-primary bg-background-secondary px-2.5 text-xs focus-visible:ring-2 focus-visible:ring-hz-accent"
-                      onClick={() => navigation.toggleMap("review")}
+                      onClick={() => navigation.openReview(notes.draft.id)}
                     >
                       Abrir revisão sem olhar
                     </Button>
