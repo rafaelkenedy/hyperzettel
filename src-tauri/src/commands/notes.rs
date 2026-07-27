@@ -73,16 +73,15 @@ fn save_note_document(
         ));
     }
     let existing = note_index.file_record(&row.id)?;
-    let is_existing = existing.is_some();
     row.file_name = match existing {
         Some((file_name, expected_hash)) => {
-            resolve_indexed_file(vault, note_index, &row.id, &file_name, &expected_hash)?
+            let resolved =
+                resolve_indexed_file(vault, note_index, &row.id, &file_name, &expected_hash)?;
+            vault.write_note_if_unchanged(&resolved, &expected_hash, html)?;
+            resolved
         }
         None => write_new_note(vault, &row.file_name, &row.id, html)?,
     };
-    if is_existing {
-        vault.write_note(&row.file_name, html)?;
-    }
     row.content_hash = hash_html(html);
     note_index.upsert(&row)?;
     Ok(())
@@ -127,7 +126,7 @@ fn write_new_note(
         if vault.note_exists(&candidate)? {
             let existing = vault.read_note(&candidate)?;
             if document_declares_id(&existing, id) {
-                vault.write_note(&candidate, html)?;
+                vault.write_note_if_unchanged(&candidate, &hash_html(&existing), html)?;
                 return Ok(candidate);
             }
             continue;
@@ -420,7 +419,7 @@ fn delete_note_document(
     let (indexed_file_name, expected_hash) = indexed_file_record(note_index, id)?;
     let file_name =
         resolve_indexed_file(vault, note_index, id, &indexed_file_name, &expected_hash)?;
-    vault.delete_note(&file_name)?;
+    vault.delete_note_if_unchanged(&file_name, &expected_hash)?;
     note_index.delete(id)?;
     Ok(())
 }

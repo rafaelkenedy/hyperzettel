@@ -97,8 +97,10 @@ Security boundaries, abuse cases, and residual risks are maintained in the
   new JSON export every seven days. Its local timestamp confirms that a download
   was initiated, not that the resulting file remains durable or off-device.
 - **Atomic publication is not a full power-loss guarantee.** The implementation
-  synchronizes the temporary file before `rename`, but does not explicitly
-  synchronize the parent directory.
+  synchronizes the temporary file, revalidates the observed hash immediately
+  before replacement and uses no-clobber `hard_link` publication for new names.
+  It does not explicitly synchronize the parent directory, and the filesystem
+  still cannot provide compare-and-set by content in one indivisible operation.
 - **`document.execCommand`** remains for now; expanding tags increases the case for migrating off it later (tracked separately, not in this ADR).
 
 ## Revisit if

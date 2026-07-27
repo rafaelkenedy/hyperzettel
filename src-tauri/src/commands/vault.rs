@@ -1,6 +1,7 @@
 use std::process::Command;
 
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 
 use crate::{
     commands::notes::document_declares_id,
@@ -44,6 +45,7 @@ fn error_code(error: &VaultError) -> &'static str {
         VaultError::PathEscapesVault { .. } => "path_escapes_vault",
         VaultError::UnsafeFileType(_) => "unsafe_file_type",
         VaultError::DocumentTooLarge { .. } => "note_document_too_large",
+        VaultError::ContentChanged(_) => "vault_content_changed",
         VaultError::LockPoisoned => "vault_lock_poisoned",
         VaultError::Io { .. } => "io_error",
     }
@@ -138,16 +140,11 @@ fn adopt_note_document(
         });
     }
 
-    let actual_hash = vault.note_hash(&row.file_name)?;
-    if actual_hash != expected_hash {
-        return Err(VaultCommandError {
-            code: "vault_content_changed".to_owned(),
-            message: format!("file '{}' changed before adoption", row.file_name),
-        });
-    }
-
-    vault.write_note(&row.file_name, html)?;
-    row.content_hash = vault.note_hash(&row.file_name)?;
+    vault.write_note_if_unchanged(&row.file_name, expected_hash, html)?;
+    // O índice registra exatamente a versão que este comando publicou. Ler o
+    // arquivo de novo aqui poderia mascarar uma edição externa ocorrida logo
+    // após o rename, associando metadados locais ao hash do conteúdo alheio.
+    row.content_hash = hex::encode(Sha256::digest(html.as_bytes()));
     note_index.upsert(&row)?;
     Ok(())
 }
@@ -155,6 +152,8 @@ fn adopt_note_document(
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use sha2::{Digest, Sha256};
 
     use crate::{
         database::Database,
@@ -203,9 +202,11 @@ mod tests {
         adopt_note_document(&vault, &index, row(), &expected_hash, adopted).unwrap();
 
         assert_eq!(vault.read_note("manual.html").unwrap(), adopted);
+        let (file_name, indexed_hash) = index.file_record("adopted-id").unwrap().unwrap();
+        assert_eq!(file_name, "manual.html");
         assert_eq!(
-            index.file_record("adopted-id").unwrap().unwrap().0,
-            "manual.html"
+            indexed_hash,
+            hex::encode(Sha256::digest(adopted.as_bytes()))
         );
     }
 
@@ -270,6 +271,14 @@ mod tests {
         assert!(json["html"].is_null());
         assert_eq!(json["sizeBytes"], 30_000_000);
         assert_eq!(json["maxBytes"], crate::vault::MAX_NOTE_DOCUMENT_BYTES);
+    }
+
+    #[test]
+    fn concurrent_content_change_uses_the_frontend_conflict_code() {
+        let error = VaultCommandError::from(crate::vault::VaultError::ContentChanged(
+            "nota.html".to_owned(),
+        ));
+        assert_eq!(error.code, "vault_content_changed");
     }
 }
 
