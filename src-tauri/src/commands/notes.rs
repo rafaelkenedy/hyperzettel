@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 use crate::{
     commands::vault::VaultCommandError,
     database::DatabaseError,
-    note_index::NoteIndexRow,
+    note_index::{NoteIndexRow, SqliteNoteIndex},
     state::AppState,
     vault::{VaultError, VaultStore},
 };
@@ -54,8 +54,17 @@ impl From<DatabaseError> for NoteCommandError {
 #[tauri::command]
 pub async fn save_note(
     state: tauri::State<'_, AppState>,
-    mut row: NoteIndexRow,
+    row: NoteIndexRow,
     html: String,
+) -> Result<(), NoteCommandError> {
+    save_note_document(state.vault.as_ref(), state.note_index.as_ref(), row, &html)
+}
+
+fn save_note_document(
+    vault: &VaultStore,
+    note_index: &SqliteNoteIndex,
+    mut row: NoteIndexRow,
+    html: &str,
 ) -> Result<(), NoteCommandError> {
     if !document_declares_id(&html, &row.id) {
         return Err(integrity_error(
@@ -63,19 +72,19 @@ pub async fn save_note(
             &format!("the note document does not declare hz:id '{}'", row.id),
         ));
     }
-    let existing = state.note_index.file_record(&row.id)?;
+    let existing = note_index.file_record(&row.id)?;
     let is_existing = existing.is_some();
     row.file_name = match existing {
         Some((file_name, expected_hash)) => {
-            resolve_indexed_file(&state, &row.id, &file_name, &expected_hash)?
+            resolve_indexed_file(vault, note_index, &row.id, &file_name, &expected_hash)?
         }
-        None => write_new_note(&state.vault, &row.file_name, &row.id, &html)?,
+        None => write_new_note(vault, &row.file_name, &row.id, html)?,
     };
     if is_existing {
-        state.vault.write_note(&row.file_name, &html)?;
+        vault.write_note(&row.file_name, html)?;
     }
-    row.content_hash = hash_html(&html);
-    state.note_index.upsert(&row)?;
+    row.content_hash = hash_html(html);
+    note_index.upsert(&row)?;
     Ok(())
 }
 
@@ -135,7 +144,8 @@ fn write_new_note(
 }
 
 fn resolve_indexed_file(
-    state: &AppState,
+    vault: &VaultStore,
+    note_index: &SqliteNoteIndex,
     id: &str,
     indexed_file_name: &str,
     expected_hash: &str,
@@ -147,8 +157,8 @@ fn resolve_indexed_file(
         ));
     }
 
-    if state.vault.note_exists(indexed_file_name)? {
-        let actual_hash = state.vault.note_hash(indexed_file_name)?;
+    if vault.note_exists(indexed_file_name)? {
+        let actual_hash = vault.note_hash(indexed_file_name)?;
         if actual_hash == expected_hash {
             return Ok(indexed_file_name.to_owned());
         }
@@ -158,10 +168,10 @@ fn resolve_indexed_file(
         ));
     }
 
-    let matches = state.vault.find_note_files_by_hash(expected_hash)?;
+    let matches = vault.find_note_files_by_hash(expected_hash)?;
     match matches.as_slice() {
         [renamed] => {
-            state.note_index.update_file_name(id, renamed)?;
+            note_index.update_file_name(id, renamed)?;
             Ok(renamed.clone())
         }
         [] => Err(integrity_error(
@@ -198,7 +208,12 @@ fn integrity_error(code: &str, message: &str) -> NoteCommandError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use crate::database::Database;
+    use std::{
+        fs,
+        path::PathBuf,
+        sync::atomic::{AtomicUsize, Ordering},
+    };
 
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
@@ -206,6 +221,40 @@ mod tests {
         let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
         let root = std::env::temp_dir().join(format!("hz-name-{}-{unique}", std::process::id()));
         VaultStore::open(root).expect("vault")
+    }
+
+    fn integrated_fixture() -> (PathBuf, VaultStore, SqliteNoteIndex) {
+        let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let root =
+            std::env::temp_dir().join(format!("hz-lifecycle-{}-{unique}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let vault = VaultStore::open(root.join("vault")).expect("vault");
+        let database = Database::open(&root.join("index.sqlite")).expect("database");
+        (root, vault, SqliteNoteIndex::new(database))
+    }
+
+    fn sample_row(id: &str, file_name: &str) -> NoteIndexRow {
+        NoteIndexRow {
+            id: id.to_owned(),
+            file_name: file_name.to_owned(),
+            title: "Ideia integrada".to_owned(),
+            folder: "resources".to_owned(),
+            kind: "permanent".to_owned(),
+            template: "concept".to_owned(),
+            status: "saved".to_owned(),
+            plain_text: "corpo".to_owned(),
+            recall_prompt: "Como explicar a ideia?".to_owned(),
+            content_hash: String::new(),
+            created_at: "2026-07-26T20:00:00.000Z".to_owned(),
+            updated_at: "2026-07-26T20:00:00.000Z".to_owned(),
+            connections: Vec::new(),
+        }
+    }
+
+    fn sample_html(id: &str, body: &str) -> String {
+        format!(
+            r#"<!doctype html><html><head><meta name="hz:id" content="{id}"><title>Ideia integrada</title></head><body><article>{body}</article></body></html>"#
+        )
     }
 
     #[test]
@@ -264,16 +313,94 @@ mod tests {
             "expected-id"
         ));
     }
+
+    #[test]
+    fn real_vault_and_sqlite_complete_the_note_lifecycle_after_external_rename() {
+        let (root, vault, index) = integrated_fixture();
+        let id = "lifecycle-id";
+        let original_name = "20260726-200000--ideia-integrada--lifecycl.html";
+        let renamed = "minha-ideia-renomeada.html";
+        let html = sample_html(id, "versão inicial");
+
+        save_note_document(&vault, &index, sample_row(id, original_name), &html).unwrap();
+        assert_eq!(vault.read_note(original_name).unwrap(), html);
+        assert_eq!(
+            index.file_record(id).unwrap(),
+            Some((original_name.to_owned(), hash_html(&html)))
+        );
+        assert_eq!(read_note_document(&vault, &index, id).unwrap(), html);
+
+        fs::rename(vault.root().join(original_name), vault.root().join(renamed)).unwrap();
+
+        assert_eq!(read_note_document(&vault, &index, id).unwrap(), html);
+        assert_eq!(
+            index.file_record(id).unwrap().unwrap().0,
+            renamed.to_owned()
+        );
+
+        delete_note_document(&vault, &index, id).unwrap();
+        assert!(!vault.note_exists(renamed).unwrap());
+        assert!(index.file_record(id).unwrap().is_none());
+
+        drop(index);
+        drop(vault);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn real_lifecycle_blocks_read_save_and_delete_after_external_edit() {
+        let (root, vault, index) = integrated_fixture();
+        let id = "externally-edited-id";
+        let file_name = "nota-protegida.html";
+        let original = sample_html(id, "versão original");
+        let external = sample_html(id, "edição externa");
+        let attempted = sample_html(id, "rascunho local");
+
+        save_note_document(&vault, &index, sample_row(id, file_name), &original).unwrap();
+        vault.write_note(file_name, &external).unwrap();
+
+        assert_eq!(
+            read_note_document(&vault, &index, id).unwrap_err().code,
+            "vault_content_changed"
+        );
+        assert_eq!(
+            save_note_document(&vault, &index, sample_row(id, file_name), &attempted)
+                .unwrap_err()
+                .code,
+            "vault_content_changed"
+        );
+        assert_eq!(
+            delete_note_document(&vault, &index, id).unwrap_err().code,
+            "vault_content_changed"
+        );
+        assert_eq!(vault.read_note(file_name).unwrap(), external);
+        assert!(index.file_record(id).unwrap().is_some());
+
+        drop(index);
+        drop(vault);
+        let _ = fs::remove_dir_all(root);
+    }
 }
 
-fn indexed_file_record(state: &AppState, id: &str) -> Result<(String, String), NoteCommandError> {
-    state
-        .note_index
-        .file_record(id)?
-        .ok_or_else(|| NoteCommandError {
-            code: "note_not_found".to_owned(),
-            message: format!("note '{id}' is not present in the vault index"),
-        })
+fn indexed_file_record(
+    note_index: &SqliteNoteIndex,
+    id: &str,
+) -> Result<(String, String), NoteCommandError> {
+    note_index.file_record(id)?.ok_or_else(|| NoteCommandError {
+        code: "note_not_found".to_owned(),
+        message: format!("note '{id}' is not present in the vault index"),
+    })
+}
+
+fn read_note_document(
+    vault: &VaultStore,
+    note_index: &SqliteNoteIndex,
+    id: &str,
+) -> Result<String, NoteCommandError> {
+    let (indexed_file_name, expected_hash) = indexed_file_record(note_index, id)?;
+    let file_name =
+        resolve_indexed_file(vault, note_index, id, &indexed_file_name, &expected_hash)?;
+    Ok(vault.read_note(&file_name)?)
 }
 
 /// Lê uma nota pelo id interno, resolvendo o nome físico através do índice.
@@ -282,9 +409,20 @@ pub async fn read_note(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> Result<String, NoteCommandError> {
-    let (indexed_file_name, expected_hash) = indexed_file_record(&state, &id)?;
-    let file_name = resolve_indexed_file(&state, &id, &indexed_file_name, &expected_hash)?;
-    Ok(state.vault.read_note(&file_name)?)
+    read_note_document(state.vault.as_ref(), state.note_index.as_ref(), &id)
+}
+
+fn delete_note_document(
+    vault: &VaultStore,
+    note_index: &SqliteNoteIndex,
+    id: &str,
+) -> Result<(), NoteCommandError> {
+    let (indexed_file_name, expected_hash) = indexed_file_record(note_index, id)?;
+    let file_name =
+        resolve_indexed_file(vault, note_index, id, &indexed_file_name, &expected_hash)?;
+    vault.delete_note(&file_name)?;
+    note_index.delete(id)?;
+    Ok(())
 }
 
 /// Remove a nota pelo id interno, sem impor uma convenção ao nome físico.
@@ -293,11 +431,7 @@ pub async fn delete_note(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> Result<(), NoteCommandError> {
-    let (indexed_file_name, expected_hash) = indexed_file_record(&state, &id)?;
-    let file_name = resolve_indexed_file(&state, &id, &indexed_file_name, &expected_hash)?;
-    state.vault.delete_note(&file_name)?;
-    state.note_index.delete(&id)?;
-    Ok(())
+    delete_note_document(state.vault.as_ref(), state.note_index.as_ref(), &id)
 }
 
 /// Linhas do índice para montar a lista/grafo sem ler os arquivos pesados.
