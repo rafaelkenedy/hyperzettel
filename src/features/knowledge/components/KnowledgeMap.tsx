@@ -88,7 +88,10 @@ export function KnowledgeMap() {
         </header>
 
         <div className="grid shrink-0 grid-cols-2 gap-2 border-b border-border-primary p-3">
-          <Metric label="Retenção média" value={percent(metrics.average)} />
+          <Metric
+            label="Retenção média"
+            value={metrics.average === null ? "—" : percent(metrics.average)}
+          />
           <Metric label="A revisar" value={metrics.reviewDue} />
           <Metric label="Notas" value={notes.length} />
           <Metric label="Conexões fortes" value={metrics.strongEdges} />

@@ -377,7 +377,11 @@ export function Dashboard() {
           <StatCard
             icon={Brain}
             label="Retenção"
-            value={`${Math.round(knowledge.snapshot.metrics.average * 100)}%`}
+            value={
+              knowledge.snapshot.metrics.average === null
+                ? "—"
+                : `${Math.round(knowledge.snapshot.metrics.average * 100)}%`
+            }
             supporting={`${reviewDue} a revisar`}
             tone="bg-[#e8f4ec] text-[#1c6b45]"
             onClick={() => navigation.toggleMap("review")}

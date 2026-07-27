@@ -338,10 +338,60 @@ describe("métricas e curva", () => {
     expect(model.reviewNote("captura", 4)).toEqual({ ok: false, reason: "ineligible" });
   });
 
+  test("calcula a retenção média somente entre notas revisáveis", () => {
+    const model = createKnowledgeModel(null);
+    const at = Date.parse("2026-05-01T12:00:00.000Z");
+    const fresh = {
+      ...note("permanente"),
+      updatedAt: new Date(at).toISOString()
+    };
+    const old = "2026-01-01T00:00:00.000Z";
+
+    const result = model.sync(
+      [
+        fresh,
+        { ...note("rascunho"), status: "draft", updatedAt: old },
+        { ...note("captura"), kind: "fleeting", updatedAt: old }
+      ],
+      at
+    );
+
+    expect(result.notes).toHaveLength(3);
+    expect(result.metrics.average).toBeCloseTo(1, 5);
+  });
+
+  test("não inventa retenção zero quando ainda não há nota revisável", () => {
+    const model = createKnowledgeModel(null);
+    const result = model.sync([
+      { ...note("rascunho"), status: "draft" },
+      { ...note("captura"), kind: "fleeting" }
+    ]);
+
+    expect(result.metrics.average).toBeNull();
+  });
+
   test("a curva devolve um ponto por dia do período", () => {
     const model = createKnowledgeModel(null);
     model.sync([note("a")]);
 
     expect(model.curve(30)).toHaveLength(31);
+  });
+
+  test("a curva começa na elegibilidade e ignora rascunhos", () => {
+    const model = createKnowledgeModel(null);
+    const now = Date.parse("2026-05-01T12:00:00.000Z");
+    model.sync(
+      [
+        { ...note("revisável"), updatedAt: new Date(now).toISOString() },
+        { ...note("rascunho"), status: "draft" }
+      ],
+      now
+    );
+
+    expect(model.curve(2, now).map((point) => point.value)).toEqual([
+      null,
+      null,
+      1
+    ]);
   });
 });
