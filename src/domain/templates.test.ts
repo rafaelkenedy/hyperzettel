@@ -9,7 +9,16 @@
 import { describe, expect, test } from "vitest";
 
 import { TEMPLATE_LABELS, type TemplateId } from "@/domain/notes";
-import { findTemplate, TEMPLATE_GROUPS, TEMPLATES, type NoteTemplate } from "./templates";
+import {
+  findTemplate,
+  noteCompletionReadiness,
+  TEMPLATE_GROUPS,
+  TEMPLATES,
+  type NoteTemplate
+} from "./templates";
+import { createNoteRecord } from "./notes";
+
+const plain = (html: string) => html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
 
 const TEMPLATE_IDS = Object.keys(TEMPLATE_LABELS) as TemplateId[];
 
@@ -61,5 +70,39 @@ describe("findTemplate", () => {
   test("devolve o primeiro modelo quando o id não existe", () => {
     const fallback = findTemplate("inexistente" as TemplateId);
     expect(fallback.id).toBe(TEMPLATES[0].id);
+  });
+});
+
+describe("noteCompletionReadiness", () => {
+  test("distingue o scaffolding intacto de conteúdo realmente escrito", () => {
+    const study = findTemplate("study");
+    const note = createNoteRecord({
+      id: "study-note",
+      title: "Por que a inflação pode elevar os juros?",
+      template: "study",
+      content: study.content
+    });
+
+    expect(noteCompletionReadiness(note, plain)).toBe("template-scaffold");
+    expect(
+      noteCompletionReadiness(
+        { ...note, content: "<p>Porque a política monetária tenta reduzir a demanda.</p>" },
+        plain
+      )
+    ).toBe("ready");
+  });
+
+  test("mantém o comportamento livre das notas em branco", () => {
+    const note = createNoteRecord({
+      id: "blank-note",
+      title: "Uma ideia suficiente",
+      template: "blank",
+      content: ""
+    });
+
+    expect(noteCompletionReadiness(note, plain)).toBe("ready");
+    expect(
+      noteCompletionReadiness({ ...note, title: "", content: "" }, plain)
+    ).toBe("empty");
   });
 });

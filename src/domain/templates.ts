@@ -5,7 +5,13 @@
  * pasta sugeridos. É o que diferencia o tipo de uma simples etiqueta.
  */
 
-import type { FolderId, NoteKind, TemplateId } from "@/domain/notes";
+import {
+  hasMeaningfulContent,
+  type FolderId,
+  type Note,
+  type NoteKind,
+  type TemplateId
+} from "@/domain/notes";
 
 /**
  * Famílias de modelo. Existem para dar hierarquia: uma grade de dez cartões
@@ -144,4 +150,37 @@ export const TEMPLATES: readonly NoteTemplate[] = Object.freeze([
 
 export function findTemplate(id: TemplateId): NoteTemplate {
   return TEMPLATES.find((template) => template.id === id) ?? TEMPLATES[0];
+}
+
+export type NoteCompletionReadiness = "empty" | "template-scaffold" | "ready";
+
+function normalizedPlainText(value: string, toPlainText: (html: string) => string): string {
+  return toPlainText(value).replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Separa "pode ser protegido pelo autosave" de "já contém autoria suficiente
+ * para ser concluído". O texto orientativo de um modelo é um rascunho útil,
+ * mas ainda não é conhecimento produzido pela pessoa.
+ */
+export function noteCompletionReadiness(
+  note: Pick<Note, "title" | "content" | "connections" | "template">,
+  toPlainText: (html: string) => string
+): NoteCompletionReadiness {
+  if (
+    !hasMeaningfulContent(
+      { title: note.title, content: note.content, connections: note.connections },
+      toPlainText
+    )
+  ) {
+    return "empty";
+  }
+
+  if (note.template === "blank") return "ready";
+
+  const scaffold = findTemplate(note.template).content;
+  const authoredText = normalizedPlainText(note.content, toPlainText);
+  const scaffoldText = normalizedPlainText(scaffold, toPlainText);
+
+  return authoredText && authoredText !== scaffoldText ? "ready" : "template-scaffold";
 }

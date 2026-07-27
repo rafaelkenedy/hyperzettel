@@ -1,4 +1,5 @@
 import type { NoteStatus } from "@/domain/notes";
+import type { NoteCompletionReadiness } from "@/domain/templates";
 
 export type NoteUiState =
   | "updating"
@@ -19,6 +20,7 @@ interface CompletionActionInput {
   status: NoteStatus;
   hasPersistedNote: boolean;
   shortcut: string;
+  readiness: NoteCompletionReadiness;
 }
 
 export interface CompletionAction {
@@ -48,9 +50,16 @@ export function resolveCompletionAction({
   dirty,
   status,
   hasPersistedNote,
-  shortcut
+  shortcut,
+  readiness
 }: CompletionActionInput): CompletionAction {
   if (status === "draft") {
+    if (readiness === "template-scaffold") {
+      return { enabled: false, label: "Preencha o modelo antes de concluir" };
+    }
+    if (readiness === "empty") {
+      return { enabled: false, label: "Escreva antes de concluir" };
+    }
     return dirty || hasPersistedNote
       ? { enabled: true, label: `Concluir nota (${shortcut})` }
       : { enabled: false, label: "Escreva antes de concluir" };

@@ -41,7 +41,8 @@ describe("resolveCompletionAction", () => {
         dirty: false,
         status: "draft",
         hasPersistedNote: true,
-        shortcut: "Ctrl+S"
+        shortcut: "Ctrl+S",
+        readiness: "ready"
       })
     ).toEqual({ enabled: true, label: "Concluir nota (Ctrl+S)" });
   });
@@ -52,7 +53,8 @@ describe("resolveCompletionAction", () => {
         dirty: false,
         status: "draft",
         hasPersistedNote: false,
-        shortcut: "Ctrl+S"
+        shortcut: "Ctrl+S",
+        readiness: "empty"
       })
     ).toEqual({ enabled: false, label: "Escreva antes de concluir" });
   });
@@ -63,8 +65,21 @@ describe("resolveCompletionAction", () => {
         dirty: true,
         status: "saved",
         hasPersistedNote: true,
-        shortcut: "Ctrl+S"
+        shortcut: "Ctrl+S",
+        readiness: "ready"
       })
     ).toEqual({ enabled: true, label: "Aplicar alterações agora (Ctrl+S)" });
+  });
+
+  test("não conclui um modelo que ainda contém apenas as instruções", () => {
+    expect(
+      resolveCompletionAction({
+        dirty: true,
+        status: "draft",
+        hasPersistedNote: false,
+        shortcut: "Ctrl+S",
+        readiness: "template-scaffold"
+      })
+    ).toEqual({ enabled: false, label: "Preencha o modelo antes de concluir" });
   });
 });

@@ -37,11 +37,12 @@ import { useKnowledge } from "@/app/providers/KnowledgeProvider";
 import { useNavigation } from "@/app/providers/NavigationProvider";
 import { useAnnouncer } from "@/app/providers/AnnouncerProvider";
 import { useBackup } from "@/app/useBackup";
-import { findTemplate } from "@/domain/templates";
+import { findTemplate, noteCompletionReadiness } from "@/domain/templates";
 import { FormattingToolbar } from "./FormattingToolbar";
 import { IconAction } from "./IconAction";
 import { optimizeImageToDataUrl } from "@/infrastructure/imageOptimizer";
 import { formatShortcut } from "@/shared/platform";
+import { toPlainText } from "@/shared/html";
 import { slugify } from "@/shared/slug";
 import { KindBadge } from "./KindBadge";
 import { FirstCycleCoach } from "@/features/onboarding/FirstCycleCoach";
@@ -206,7 +207,8 @@ export function EditorPane({
     dirty: notes.dirty,
     status: notes.draft.status,
     hasPersistedNote: notes.currentNote !== null,
-    shortcut: formatShortcut("S")
+    shortcut: formatShortcut("S"),
+    readiness: noteCompletionReadiness(notes.draft, toPlainText)
   });
 
   return (

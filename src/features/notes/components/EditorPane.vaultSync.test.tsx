@@ -5,6 +5,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
+import { findTemplate } from "@/domain/templates";
 import { EditorPane } from "./EditorPane";
 
 const mocks = vi.hoisted(() => ({
@@ -76,6 +77,7 @@ beforeEach(() => {
   mocks.reloadExternalChanges.mockReset();
   mocks.notes.externalVaultChange = true;
   mocks.notes.draft.title = "Rascunho local";
+  mocks.notes.draft.content = "<p>conteúdo</p>";
   mocks.notes.draft.template = "blank";
 });
 
@@ -101,4 +103,21 @@ test("orienta o título da nota de estudo como uma pergunta recuperável", () =>
   expect(
     screen.getByPlaceholderText("Que pergunta você quer conseguir responder?")
   ).toBeTruthy();
+});
+
+test("desabilita a conclusão enquanto a nota contém apenas o scaffolding", () => {
+  mocks.notes.externalVaultChange = false;
+  mocks.notes.draft.title = "Por que a inflação pode elevar os juros?";
+  mocks.notes.draft.content = findTemplate("study").content;
+  mocks.notes.draft.template = "study";
+
+  render(<EditorPane />);
+
+  expect(
+    (
+      screen.getByRole("button", {
+        name: "Preencha o modelo antes de concluir"
+      }) as HTMLButtonElement
+    ).disabled
+  ).toBe(true);
 });

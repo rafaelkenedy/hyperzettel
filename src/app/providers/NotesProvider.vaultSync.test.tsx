@@ -62,6 +62,9 @@ function Harness() {
       <button type="button" onClick={() => void notes.newNoteFromTemplate("study")}>
         Criar nota de estudo
       </button>
+      <button type="button" onClick={() => void notes.saveNow()}>
+        Concluir nota
+      </button>
     </div>
   );
 }
@@ -112,6 +115,33 @@ describe("sincronização do vault durante a sessão", () => {
     expect(screen.getByTestId("draft-template").textContent).toBe("study");
     expect(mocks.setView).toHaveBeenCalledWith("note");
     expect(mocks.announce).toHaveBeenCalledWith("Modelo aplicado: Nota de estudo.");
+  });
+
+  test("protege o modelo no autosave sem concluí-lo como conteúdo autoral", async () => {
+    render(
+      <NotesProvider>
+        <Harness />
+      </NotesProvider>
+    );
+    await waitFor(() => expect(screen.getByTestId("ready").textContent).toBe("true"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Criar nota de estudo" }));
+    await waitFor(() => expect(screen.getByTestId("draft-template").textContent).toBe("study"));
+    await waitFor(() => expect(mocks.save).toHaveBeenCalledOnce());
+    expect(mocks.save.mock.calls[0]?.[0]).toMatchObject({
+      template: "study",
+      status: "draft"
+    });
+    expect(mocks.enqueue).toHaveBeenCalledOnce();
+    mocks.announce.mockClear();
+
+    fireEvent.click(screen.getByRole("button", { name: "Concluir nota" }));
+
+    expect(mocks.save).toHaveBeenCalledOnce();
+    expect(mocks.enqueue).toHaveBeenCalledOnce();
+    expect(mocks.announce).toHaveBeenCalledWith(
+      "Substitua as instruções do modelo pelo conteúdo da nota antes de concluir."
+    );
   });
 
   test("pausa o rascunho e o preserva com nova identidade antes de recarregar", async () => {

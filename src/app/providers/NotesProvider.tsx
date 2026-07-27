@@ -37,7 +37,7 @@ import {
   type Scope,
   type TemplateId
 } from "@/domain/notes";
-import { findTemplate } from "@/domain/templates";
+import { findTemplate, noteCompletionReadiness } from "@/domain/templates";
 import { toPlainText, type NoteSection } from "@/shared/html";
 import {
   vaultErrorMessage,
@@ -522,13 +522,13 @@ export function NotesProvider({ children }: { children: ReactNode }) {
 
   const saveNow = useCallback(async () => {
     const source = draftRef.current;
-    if (
-      !hasMeaningfulContent(
-        { title: source.title, content: source.content, connections: source.connections },
-        toPlainText
-      )
-    ) {
+    const readiness = noteCompletionReadiness(source, toPlainText);
+    if (readiness === "empty") {
       announce("Escreva antes de concluir a nota.");
+      return;
+    }
+    if (readiness === "template-scaffold") {
+      announce("Substitua as instruções do modelo pelo conteúdo da nota antes de concluir.");
       return;
     }
 
