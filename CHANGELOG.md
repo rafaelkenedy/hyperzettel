@@ -25,6 +25,7 @@ segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 
 ### Fixed
 
+- A revisão iniciada pelo editor ou pelas propriedades agora espera a versão visível ser persistida; falha ou conflito mantém a pessoa no editor em vez de revisar conteúdo desatualizado.
 - O cartão “Conexões” da tela inicial agora conta cada relação válida e não direcionada uma única vez, sem duplicar links recíprocos nem incluir auto-referências ou destinos ausentes.
 - Depois que o primeiro ciclo é concluído, revisões vencidas e caixa de entrada voltam a ter prioridade no foco da tela inicial; a celebração permanece apenas quando não há trabalho recorrente pendente.
 - A retenção média e a curva agora consideram somente notas concluídas e revisáveis; capturas e rascunhos continuam no grafo, e a ausência de uma amostra é exibida como “—” em vez de “0%”.

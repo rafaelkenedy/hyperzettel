@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { findTemplate } from "@/domain/templates";
@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   reloadExternalChanges: vi.fn(),
   openReview: vi.fn(),
   activeRetention: null as { strength: number } | null,
+  persistDraft: vi.fn(),
   saveNow: vi.fn(),
   setTitle: vi.fn(),
   setContent: vi.fn(),
@@ -42,6 +43,7 @@ vi.mock("@/app/providers/NotesProvider", () => ({
   useNotes: () => ({
     ...mocks.notes,
     reloadExternalChanges: mocks.reloadExternalChanges,
+    persistDraft: mocks.persistDraft,
     saveNow: mocks.saveNow,
     setTitle: mocks.setTitle,
     setContent: mocks.setContent,
@@ -78,6 +80,7 @@ afterEach(cleanup);
 beforeEach(() => {
   mocks.reloadExternalChanges.mockReset();
   mocks.openReview.mockReset();
+  mocks.persistDraft.mockReset().mockResolvedValue({ id: "draft-id" });
   mocks.notes.externalVaultChange = true;
   mocks.notes.draft.title = "Rascunho local";
   mocks.notes.draft.content = "<p>conteúdo</p>";
@@ -127,7 +130,7 @@ test("desabilita a conclusão enquanto a nota contém apenas o scaffolding", () 
   ).toBe(true);
 });
 
-test("abre uma revisão avulsa para a nota atual", () => {
+test("persiste a nota antes de abrir uma revisão avulsa", async () => {
   mocks.notes.externalVaultChange = false;
   mocks.notes.draft.kind = "permanent";
   mocks.activeRetention = { strength: 0.92 };
@@ -139,5 +142,24 @@ test("abre uma revisão avulsa para a nota atual", () => {
       name: "Abrir revisão ativa · retenção 92%"
     })
   );
-  expect(mocks.openReview).toHaveBeenCalledWith("draft-id");
+  expect(mocks.persistDraft).toHaveBeenCalledOnce();
+  await waitFor(() => expect(mocks.openReview).toHaveBeenCalledWith("draft-id"));
+});
+
+test("não abre a revisão quando a versão atual não pôde ser persistida", async () => {
+  mocks.notes.externalVaultChange = false;
+  mocks.notes.draft.kind = "permanent";
+  mocks.activeRetention = { strength: 0.92 };
+  mocks.persistDraft.mockResolvedValue(null);
+
+  render(<EditorPane />);
+
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: "Abrir revisão ativa · retenção 92%"
+    })
+  );
+
+  await waitFor(() => expect(mocks.persistDraft).toHaveBeenCalledOnce());
+  expect(mocks.openReview).not.toHaveBeenCalled();
 });

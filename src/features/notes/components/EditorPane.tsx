@@ -243,8 +243,16 @@ export function EditorPane({
                     ? `Abrir revisão ativa · retenção ${Math.round(knowledge.activeRetention.strength * 100)}%`
                     : "Conclua a nota antes de revisar"
               }
-              onClick={() => navigation.openReview(notes.draft.id)}
-              disabled={!knowledge.activeRetention || notes.draft.kind === "fleeting"}
+              onClick={() =>
+                void notes.persistDraft().then((persisted) => {
+                  if (persisted) navigation.openReview(persisted.id);
+                })
+              }
+              disabled={
+                notes.saving ||
+                !knowledge.activeRetention ||
+                notes.draft.kind === "fleeting"
+              }
             />
             <IconAction
               icon={Network}
