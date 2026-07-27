@@ -129,10 +129,16 @@ async function read(id: string): Promise<Note | null> {
   try {
     return await load();
   } catch (error) {
+    if (errorCode(error) === "note_not_found") return null;
     if (!isExternalVaultChange(error)) throw error;
     const report = await reindexFromVault();
     if (report.issues.length) throw new VaultIntegrityError(report);
-    return load();
+    try {
+      return await load();
+    } catch (retryError) {
+      if (errorCode(retryError) === "note_not_found") return null;
+      throw retryError;
+    }
   }
 }
 

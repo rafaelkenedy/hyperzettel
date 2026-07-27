@@ -51,6 +51,7 @@ import {
   removeNoteFromKnowledgeIndex
 } from "@/features/knowledge";
 import { createGuidedTopicDraft } from "@/features/onboarding/guidedOnboarding";
+import { selectInitialNoteId } from "./noteSession";
 
 const AUTOSAVE_DELAY = 700;
 const SESSION_DRAFT_KEY = "hyperzettel-active-draft";
@@ -704,9 +705,12 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         setNotes(all);
 
         const hashId = location.hash.replace(/^#/, "");
-        const targetId =
-          hashId && hashId !== "novo" ? hashId : (readSessionDraftId() ?? draftRef.current.id);
-        const restored = await vaultRepository.read(targetId);
+        const sessionId = readSessionDraftId();
+        const targetId = selectInitialNoteId(all, hashId, sessionId);
+        if (sessionId && !all.some((note) => note.id === sessionId)) {
+          writeSessionDraftId(null);
+        }
+        const restored = targetId ? await vaultRepository.read(targetId) : null;
 
         if (!cancelled && restored) {
           setCurrentNote(restored);

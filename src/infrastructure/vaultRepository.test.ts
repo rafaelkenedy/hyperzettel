@@ -107,6 +107,32 @@ describe("toIndexRow", () => {
     expect(invokeMock).toHaveBeenCalledWith("delete_note", { id: "internal-id" });
   });
 
+  test("trata note_not_found como ausência normal, sem reindexar o vault", async () => {
+    const { vaultRepository } = await import("@/infrastructure/vaultRepository");
+    invokeMock.mockRejectedValue({
+      code: "note_not_found",
+      message: "nota não indexada"
+    });
+
+    await expect(vaultRepository.read("rascunho-local")).resolves.toBeNull();
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    expect(invokeMock).toHaveBeenCalledWith("read_note", {
+      id: "rascunho-local"
+    });
+  });
+
+  test("continua propagando uma falha real de leitura", async () => {
+    const { vaultRepository } = await import("@/infrastructure/vaultRepository");
+    invokeMock.mockRejectedValue({
+      code: "io_error",
+      message: "disco indisponível"
+    });
+
+    await expect(vaultRepository.read("nota")).rejects.toMatchObject({
+      code: "io_error"
+    });
+  });
+
   test("repara um índice antigo cujo nome físico foi substituído pelo id", async () => {
     const note = createNoteRecord({ id: "internal-id", title: "Manual" });
     const { vaultRepository } = await import("@/infrastructure/vaultRepository");
