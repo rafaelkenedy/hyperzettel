@@ -66,6 +66,8 @@ export interface GraphNote extends NoteInfo {
   id: string;
   title: string;
   folder: string;
+  kind: Note["kind"];
+  status: Note["status"];
   connections: string[];
   updatedAt: string;
 }
@@ -89,9 +91,13 @@ export interface CurvePoint {
 }
 
 export type ReviewResult =
-  | { ok: false; reason: "missing" }
+  | { ok: false; reason: "missing" | "ineligible" }
   | { ok: true; repeated: true; note: NoteInfo | null }
   | { ok: true; repeated: false; reinforcedEdges: number; note: NoteInfo | null };
+
+export function isReviewEligible(note: Pick<Note, "kind" | "status">): boolean {
+  return note.status === "saved" && note.kind !== "fleeting";
+}
 
 function emptyState(): KnowledgeState {
   return { version: 1, notes: {}, edges: {} };
@@ -269,6 +275,8 @@ export function createKnowledgeModel(initialState: unknown = null) {
         id: String(note.id),
         title: String(note.title),
         folder: String(note.folder || "inbox"),
+        kind: note.kind,
+        status: note.status,
         connections: connectionIds(normalizeConnections(note.connections)),
         updatedAt: safeDate(note.updatedAt || note.createdAt),
         ...(info as NoteInfo)
@@ -293,8 +301,10 @@ export function createKnowledgeModel(initialState: unknown = null) {
         mediumEdges: edges.filter((edge) => edge.level === "medium").length,
         weakEdges: edges.filter((edge) => edge.level === "weak").length,
         /* Vencidas de fato: nunca revisadas contam quando a estimativa cai. */
-        reviewDue: notes.filter((note) =>
-          note.dueAt ? Date.parse(note.dueAt) <= at : note.strength < 0.55
+        reviewDue: notes.filter(
+          (note) =>
+            isReviewEligible(note) &&
+            (note.dueAt ? Date.parse(note.dueAt) <= at : note.strength < 0.55)
         ).length
       }
     };
@@ -316,6 +326,8 @@ export function createKnowledgeModel(initialState: unknown = null) {
     const key = String(id);
     const item = state.notes[key];
     if (!item || !isValidDate(at)) return { ok: false, reason: "missing" };
+    const source = noteIndex.get(key);
+    if (!source || !isReviewEligible(source)) return { ok: false, reason: "ineligible" };
 
     if (
       item.lastReviewedAt &&

@@ -6,7 +6,6 @@
  */
 
 export { KnowledgeMap } from "./components/KnowledgeMap";
-export { ReviewGrades } from "./components/ReviewGrades";
 
 export {
   createKnowledgeModel,

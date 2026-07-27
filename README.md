@@ -97,7 +97,7 @@ entram no índice até serem corrigidos.
 
 Na aplicação Tauri, o frontend sincroniza as notas salvas com um serviço Rust. O serviço valida e carrega o EmbeddingGemma Q4 empacotado, gera embeddings localmente e grava o resultado em `hyperzettel.sqlite`. A configuração atual considera similaridade mínima de `0,68` e mantém até cinco relações automáticas por nota. A interface permite rejeitar, restaurar, pausar, continuar ou tentar novamente essa análise.
 
-O mapa de conhecimento combina conexões, estimativa de retenção e uma fila de revisão. O agendamento usa SM-2 com respostas de lembrança que recalculam o próximo intervalo. A exportação JSON reúne notas, imagens e esse histórico de aprendizagem.
+O mapa de conhecimento combina conexões, estimativa de retenção e uma fila de revisão. Cada revisão começa com a tentativa de explicar a ideia sem consultar seu conteúdo; a resposta e os graus de lembrança aparecem somente depois da revelação. O agendamento usa SM-2 para recalcular o próximo intervalo. A exportação JSON reúne notas, imagens e esse histórico de aprendizagem.
 
 Os arquivos do modelo e seus hashes estão em `src-tauri/resources/models/embeddinggemma-300m-q4`. Os termos do EmbeddingGemma e o notice distribuído com o aplicativo estão em `src-tauri/resources/licenses`.
 

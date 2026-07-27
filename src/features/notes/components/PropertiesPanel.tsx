@@ -32,6 +32,7 @@ import {
 
 import { useNotes } from "@/app/providers/NotesProvider";
 import { useKnowledge } from "@/app/providers/KnowledgeProvider";
+import { useNavigation } from "@/app/providers/NavigationProvider";
 import {
   FOLDER_LABELS,
   KIND_HINTS,
@@ -49,7 +50,6 @@ import {
   RelatedNotes,
   RelationSettings,
   RelationStatus,
-  ReviewGrades,
   dueLabel,
   useKnowledgeRelations
 } from "@/features/knowledge";
@@ -125,6 +125,7 @@ type PanelFeedback = {
 export function PropertiesPanel({ onClose }: { onClose?: () => void } = {}) {
   const notes = useNotes();
   const knowledge = useKnowledge();
+  const navigation = useNavigation();
   const semanticRelations = useKnowledgeRelations();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [focusConnectionId, setFocusConnectionId] = useState<string | null>(null);
@@ -403,9 +404,18 @@ export function PropertiesPanel({ onClose }: { onClose?: () => void } = {}) {
                 ) : (
                   <p className="text-xs text-text-tertiary">Nunca revisada.</p>
                 )}
-                <div className="mt-2">
-                  <ReviewGrades noteId={notes.draft.id} />
-                </div>
+                <p className="mt-2 text-2xs leading-relaxed text-text-secondary">
+                  A avaliação aparece somente depois que você tenta lembrar e revela a
+                  nota.
+                </p>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="mt-2 h-8 border-border-primary bg-background-secondary px-2.5 text-xs focus-visible:ring-2 focus-visible:ring-hz-accent"
+                  onClick={() => navigation.toggleMap("review")}
+                >
+                  Abrir revisão sem olhar
+                </Button>
               </>
             )}
           </div>

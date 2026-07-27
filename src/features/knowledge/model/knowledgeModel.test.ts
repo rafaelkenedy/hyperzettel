@@ -256,6 +256,20 @@ describe("métricas e curva", () => {
     expect(model.snapshot(at + 2 * DAY).metrics.reviewDue).toBe(1);
   });
 
+  test("não inclui rascunhos nem capturas fugazes na fila de revisão", () => {
+    const model = createKnowledgeModel(null);
+    model.sync([
+      note("permanente"),
+      { ...note("rascunho"), status: "draft" },
+      { ...note("captura"), kind: "fleeting" }
+    ]);
+
+    const muchLater = Date.parse("2027-01-01T00:00:00.000Z");
+    expect(model.snapshot(muchLater).metrics.reviewDue).toBe(1);
+    expect(model.reviewNote("rascunho", 4)).toEqual({ ok: false, reason: "ineligible" });
+    expect(model.reviewNote("captura", 4)).toEqual({ ok: false, reason: "ineligible" });
+  });
+
   test("a curva devolve um ponto por dia do período", () => {
     const model = createKnowledgeModel(null);
     model.sync([note("a")]);

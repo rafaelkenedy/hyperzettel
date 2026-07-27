@@ -55,10 +55,9 @@ export function KnowledgeMap() {
     [knowledge.snapshot.edges, selectedId]
   );
 
-  /** Selecionar da fila também move o foco do grafo, que fica sempre visível. */
+  /** Selecionar da fila também move o foco do grafo, sem interromper a revisão. */
   function focusNote(id: string) {
     setSelectedId(id);
-    navigation.setMapTab("explore");
   }
 
   const { metrics, notes } = knowledge.snapshot;

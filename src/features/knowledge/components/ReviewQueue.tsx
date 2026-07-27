@@ -13,7 +13,7 @@ import { useNotes } from "@/app/providers/NotesProvider";
 import { useKnowledge } from "@/app/providers/KnowledgeProvider";
 import { LEVEL_TONE, dueSummary, percent } from "../lib/format";
 import type { GraphNote } from "../model/knowledgeModel";
-import { ReviewGrades } from "./ReviewGrades";
+import { ActiveRecall } from "./ActiveRecall";
 
 const QUEUE_SIZE = 25;
 const YEAR = 365 * 86_400_000;
@@ -34,6 +34,7 @@ export function ReviewQueue({
       note.dueAt ? Date.parse(note.dueAt) : now + note.strength * YEAR;
 
     return [...knowledge.snapshot.notes]
+      .filter((note) => note.status === "saved" && note.kind !== "fleeting")
       .sort(
         (left, right) =>
           dueScore(left) - dueScore(right) || left.title.localeCompare(right.title, "pt-BR")
@@ -52,7 +53,8 @@ export function ReviewQueue({
   return (
     <>
       <p className="mb-2 text-2xs leading-relaxed text-text-secondary">
-        Vencidas primeiro. Selecionar destaca a nota no grafo e abre as respostas.
+        Vencidas primeiro. Selecione uma nota, tente explicá-la e só então revele a
+        resposta.
       </p>
 
       <ul className="flex flex-col gap-1">
@@ -87,11 +89,16 @@ export function ReviewQueue({
                 <span className="mt-1 block text-xs font-medium leading-snug">{note.title}</span>
               </button>
 
-              {/* Os quatro graus só aparecem na nota em foco: a fila inteira
-                  com cem botões viraria ruído. */}
               {note.id === selectedId ? (
                 <div className="mt-2">
-                  <ReviewGrades noteId={note.id} compact />
+                  <ActiveRecall
+                    noteId={note.id}
+                    title={note.title}
+                    content={
+                      notes.savedNotes.find((candidate) => candidate.id === note.id)?.content ?? ""
+                    }
+                    compact
+                  />
                 </div>
               ) : null}
 

@@ -230,11 +230,14 @@ export function EditorPane({
             <IconAction
               icon={BrainCircuit}
               label={
-                knowledge.activeRetention
-                  ? `Marcar como revisada · retenção ${Math.round(knowledge.activeRetention.strength * 100)}%`
-                  : "Marcar como revisada"
+                notes.draft.kind === "fleeting"
+                  ? "Processe a captura antes de revisar"
+                  : knowledge.activeRetention
+                    ? `Abrir revisão ativa · retenção ${Math.round(knowledge.activeRetention.strength * 100)}%`
+                    : "Conclua a nota antes de revisar"
               }
-              onClick={() => void knowledge.reviewActiveNote()}
+              onClick={() => navigation.toggleMap("review")}
+              disabled={!knowledge.activeRetention || notes.draft.kind === "fleeting"}
             />
             <IconAction
               icon={Network}
