@@ -142,9 +142,29 @@ async function read(id: string): Promise<Note | null> {
   }
 }
 
-/** Serializa a nota para HTML e grava arquivo + índice numa operação. */
-function save(note: Note): Promise<void> {
-  return invoke("save_note", { row: toIndexRow(note), html: serializeNoteToHtmlDocument(note) });
+/**
+ * Serializa a nota e grava arquivo + índice. Se o HTML já chegou ao disco mas
+ * o SQLite falhou, reconstrói o índice da fonte da verdade e tenta uma única
+ * vez. A repetição é segura porque o backend compara hash e identidade.
+ */
+async function save(note: Note): Promise<void> {
+  const payload = {
+    row: toIndexRow(note),
+    html: serializeNoteToHtmlDocument(note)
+  };
+  try {
+    await invoke("save_note", payload);
+  } catch (error) {
+    if (errorCode(error) !== "index_error") throw error;
+    const { documents } = await repairIndexFromVault();
+    const htmlReachedVault = documents.some(
+      (document) =>
+        document.html === payload.html &&
+        parseHtmlDocumentToNote(document.html)?.id === note.id
+    );
+    if (!htmlReachedVault) throw error;
+    await invoke("save_note", payload);
+  }
 }
 
 /** Grava várias notas (usado ao dividir uma nota em seções). */
@@ -159,10 +179,14 @@ async function remove(id: string): Promise<void> {
   try {
     await invoke("delete_note", { id });
   } catch (error) {
-    if (!isExternalVaultChange(error)) throw error;
-    const report = await reindexFromVault();
-    if (report.issues.length) throw new VaultIntegrityError(report);
-    await invoke("delete_note", { id });
+    const code = errorCode(error);
+    if (code === "note_not_found") return;
+    if (code !== "index_error" && !isExternalVaultChange(error)) throw error;
+
+    await repairIndexFromVault();
+    const stillExists = (await list()).some((row) => row.id === id);
+    if (!stillExists) return;
+    throw error;
   }
 }
 
@@ -233,11 +257,35 @@ async function inspectVault(): Promise<VaultInspection> {
   return inspectVaultDocuments(await readAllDocuments());
 }
 
+async function rebuildFromVault(): Promise<{
+  documents: VaultDocument[];
+  inspection: VaultInspection;
+}> {
+  const documents = await readAllDocuments();
+  const inspection = inspectVaultDocuments(documents);
+  await rebuildIndex(inspection.rows);
+  return { documents, inspection };
+}
+
 async function reindexFromVault(): Promise<ReindexReport> {
-  const inspection = await inspectVault();
-  const { rows, ...report } = inspection;
-  await rebuildIndex(rows);
-  return report;
+  const { inspection } = await rebuildFromVault();
+  return {
+    indexed: inspection.indexed,
+    issues: inspection.issues
+  };
+}
+
+async function repairIndexFromVault(): Promise<{
+  documents: VaultDocument[];
+  inspection: VaultInspection;
+}> {
+  const result = await rebuildFromVault();
+  const report: ReindexReport = {
+    indexed: result.inspection.indexed,
+    issues: result.inspection.issues
+  };
+  if (report.issues.length) throw new VaultIntegrityError(report);
+  return result;
 }
 
 /**

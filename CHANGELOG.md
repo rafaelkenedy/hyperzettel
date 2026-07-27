@@ -26,6 +26,7 @@ segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 - O seletor de conexões abre dentro do processamento e persiste o motivo informado sem desmontar a tela atual.
 - A Central do Vault permite resolver IDs duplicados escolhendo qual arquivo preserva a identidade original; as demais cópias recebem IDs novos sem perder conteúdo.
 - Um vault vazio ou um ID de sessão já removido deixa de produzir um falso erro de armazenamento durante a inicialização.
+- Falhas parciais do índice após salvar ou excluir são reparadas automaticamente a partir dos arquivos HTML, sem duplicar notas nem exigir reinício.
 
 ## [0.8.0] - 2026-07-24
 

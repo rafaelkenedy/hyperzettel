@@ -107,6 +107,157 @@ describe("toIndexRow", () => {
     expect(invokeMock).toHaveBeenCalledWith("delete_note", { id: "internal-id" });
   });
 
+  test("repara o índice e repete o save quando o HTML já foi gravado", async () => {
+    const note = createNoteRecord({
+      id: "recovered-id",
+      title: "Salva apesar do índice",
+      content: "<p>fonte da verdade</p>",
+      status: "saved"
+    });
+    let documents: Array<{
+      fileName: string;
+      html: string;
+      contentHash: string;
+    }> = [];
+    let saveAttempts = 0;
+    const { vaultRepository } = await import("@/infrastructure/vaultRepository");
+
+    invokeMock.mockImplementation(
+      (
+        command: string,
+        args?: {
+          row?: { fileName: string };
+          html?: string;
+          rows?: unknown[];
+        }
+      ) => {
+        if (command === "save_note") {
+          saveAttempts += 1;
+          if (saveAttempts === 1) {
+            documents = [
+              {
+                fileName: args!.row!.fileName,
+                html: args!.html!,
+                contentHash: "hash-written"
+              }
+            ];
+            return Promise.reject({
+              code: "index_error",
+              message: "falha depois da escrita"
+            });
+          }
+          return Promise.resolve();
+        }
+        if (command === "read_all_note_files") return Promise.resolve(documents);
+        if (command === "rebuild_note_index") {
+          expect(args?.rows).toEqual([
+            expect.objectContaining({
+              id: "recovered-id",
+              contentHash: "hash-written"
+            })
+          ]);
+          return Promise.resolve();
+        }
+        return Promise.reject(new Error(`comando inesperado: ${command}`));
+      }
+    );
+
+    await expect(vaultRepository.save(note)).resolves.toBeUndefined();
+    expect(saveAttempts).toBe(2);
+  });
+
+  test("não repete o save quando a falha do índice ocorreu antes da escrita", async () => {
+    const before = createNoteRecord({
+      id: "protected-id",
+      title: "Versão externa",
+      content: "<p>não sobrescrever</p>",
+      status: "saved"
+    });
+    const attempted = createNoteRecord({
+      ...before,
+      title: "Versão do editor",
+      content: "<p>rascunho local</p>"
+    });
+    const document = {
+      fileName: "protegida.html",
+      html: serializeNoteToHtmlDocument(before),
+      contentHash: "hash-external"
+    };
+    let saveAttempts = 0;
+    const { vaultRepository } = await import("@/infrastructure/vaultRepository");
+
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "save_note") {
+        saveAttempts += 1;
+        return Promise.reject({
+          code: "index_error",
+          message: "falha antes da escrita"
+        });
+      }
+      if (command === "read_all_note_files") return Promise.resolve([document]);
+      if (command === "rebuild_note_index") return Promise.resolve();
+      return Promise.reject(new Error(`comando inesperado: ${command}`));
+    });
+
+    await expect(vaultRepository.save(attempted)).rejects.toMatchObject({
+      code: "index_error"
+    });
+    expect(saveAttempts).toBe(1);
+  });
+
+  test("considera concluída a exclusão quando só a limpeza do índice falhou", async () => {
+    let deleteAttempts = 0;
+    const { vaultRepository } = await import("@/infrastructure/vaultRepository");
+
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "delete_note") {
+        deleteAttempts += 1;
+        return Promise.reject({
+          code: "index_error",
+          message: "arquivo removido; índice falhou"
+        });
+      }
+      if (command === "read_all_note_files") return Promise.resolve([]);
+      if (command === "rebuild_note_index") return Promise.resolve();
+      if (command === "list_notes") return Promise.resolve([]);
+      return Promise.reject(new Error(`comando inesperado: ${command}`));
+    });
+
+    await expect(vaultRepository.remove("removed-id")).resolves.toBeUndefined();
+    expect(deleteAttempts).toBe(1);
+  });
+
+  test("não repete a exclusão quando o reparo confirma que o arquivo ainda existe", async () => {
+    const note = createNoteRecord({ id: "still-there", title: "Ainda existe" });
+    const document = {
+      fileName: "ainda-existe.html",
+      html: serializeNoteToHtmlDocument(note),
+      contentHash: "hash-still-there"
+    };
+    const indexed = toIndexRow(note, document.fileName, document.contentHash);
+    let deleteAttempts = 0;
+    const { vaultRepository } = await import("@/infrastructure/vaultRepository");
+
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "delete_note") {
+        deleteAttempts += 1;
+        return Promise.reject({
+          code: "index_error",
+          message: "falha antes de excluir"
+        });
+      }
+      if (command === "read_all_note_files") return Promise.resolve([document]);
+      if (command === "rebuild_note_index") return Promise.resolve();
+      if (command === "list_notes") return Promise.resolve([indexed]);
+      return Promise.reject(new Error(`comando inesperado: ${command}`));
+    });
+
+    await expect(vaultRepository.remove("still-there")).rejects.toMatchObject({
+      code: "index_error"
+    });
+    expect(deleteAttempts).toBe(1);
+  });
+
   test("trata note_not_found como ausência normal, sem reindexar o vault", async () => {
     const { vaultRepository } = await import("@/infrastructure/vaultRepository");
     invokeMock.mockRejectedValue({
