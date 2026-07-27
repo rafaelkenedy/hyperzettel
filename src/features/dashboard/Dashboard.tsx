@@ -32,7 +32,12 @@ import {
 import { useNotes } from "@/app/providers/NotesProvider";
 import { useKnowledge } from "@/app/providers/KnowledgeProvider";
 import { useNavigation } from "@/app/providers/NavigationProvider";
-import { ALL_SCOPE, FOLDER_LABELS, type TemplateId } from "@/domain/notes";
+import {
+  ALL_SCOPE,
+  FOLDER_LABELS,
+  countUniqueConnections,
+  type TemplateId
+} from "@/domain/notes";
 import {
   TEMPLATES,
   TEMPLATE_GROUPS,
@@ -163,7 +168,7 @@ export function Dashboard() {
     [notes.notes]
   );
 
-  const connections = notes.notes.reduce((total, note) => total + note.connections.length, 0);
+  const connections = countUniqueConnections(notes.notes);
   const reviewDue = knowledge.snapshot.metrics.reviewDue;
   const inboxCount = notes.folderCounts.inbox ?? 0;
   // Primeira execução: sem notas, um painel de métricas zeradas e um "Retomar"

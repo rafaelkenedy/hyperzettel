@@ -13,6 +13,7 @@ import {
   connectionIds,
   countByFolder,
   countByKind,
+  countUniqueConnections,
   createConnectionCounts,
   createNoteRecord,
   filterAndSort,
@@ -210,6 +211,27 @@ describe("createConnectionCounts", () => {
   test("ignora auto-referência e destino inexistente", () => {
     const counts = createConnectionCounts([note({ id: "a", connections: ["a", "fantasma"] })]);
     expect(counts.get("a")).toBe(0);
+  });
+});
+
+describe("countUniqueConnections", () => {
+  test("conta uma aresta recíproca uma única vez", () => {
+    expect(
+      countUniqueConnections([
+        note({ id: "a", connections: ["b"] }),
+        note({ id: "b", connections: ["a", "c"] }),
+        note({ id: "c" })
+      ])
+    ).toBe(2);
+  });
+
+  test("ignora auto-referências e destinos fora da coleção", () => {
+    expect(
+      countUniqueConnections([
+        note({ id: "a", connections: ["a", "fantasma", "b"] }),
+        note({ id: "b" })
+      ])
+    ).toBe(1);
   });
 });
 

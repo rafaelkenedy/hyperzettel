@@ -320,6 +320,20 @@ export function createConnectionCounts(notes: Note[]): Map<string, number> {
   return new Map(Array.from(connectedIds, ([noteId, ids]) => [noteId, ids.size]));
 }
 
+/**
+ * Total de arestas não direcionadas do conjunto.
+ *
+ * `createConnectionCounts` atribui cada relação às duas pontas; dividir a soma
+ * por dois mantém links unilaterais e recíprocos como uma única conexão.
+ */
+export function countUniqueConnections(notes: Note[]): number {
+  const endpointCount = [...createConnectionCounts(notes).values()].reduce(
+    (total, count) => total + count,
+    0
+  );
+  return endpointCount / 2;
+}
+
 export type RelationDirection = "mutual" | "outgoing" | "incoming";
 
 export interface Relation {

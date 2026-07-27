@@ -25,6 +25,7 @@ segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 
 ### Fixed
 
+- O cartão “Conexões” da tela inicial agora conta cada relação válida e não direcionada uma única vez, sem duplicar links recíprocos nem incluir auto-referências ou destinos ausentes.
 - Depois que o primeiro ciclo é concluído, revisões vencidas e caixa de entrada voltam a ter prioridade no foco da tela inicial; a celebração permanece apenas quando não há trabalho recorrente pendente.
 - A retenção média e a curva agora consideram somente notas concluídas e revisáveis; capturas e rascunhos continuam no grafo, e a ausência de uma amostra é exibida como “—” em vez de “0%”.
 - O relógio de retenção de uma captura começa quando ela se torna uma nota concluída e revisável, evitando que rascunhos antigos nasçam atrasados; históricos de revisão existentes permanecem intactos.
