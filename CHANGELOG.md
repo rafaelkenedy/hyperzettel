@@ -25,6 +25,7 @@ segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 
 ### Fixed
 
+- O relógio de retenção de uma captura começa quando ela se torna uma nota concluída e revisável, evitando que rascunhos antigos nasçam atrasados; históricos de revisão existentes permanecem intactos.
 - O atalho de revisão no editor agora abre uma sessão avulsa para a nota atual, mesmo quando ela ainda não venceu, sem misturá-la à fila automática de revisões pendentes.
 - Estruturas intocadas de modelos continuam protegidas pelo autosave, mas não podem mais ser concluídas ou entrar na revisão como se fossem conteúdo escrito pelo usuário.
 - Uma captura promovida para nota permanente continua no fluxo até os passos de conexão e conclusão, em vez de desaparecer ao sair da caixa de entrada.

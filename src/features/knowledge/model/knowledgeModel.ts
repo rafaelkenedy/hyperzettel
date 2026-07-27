@@ -207,12 +207,38 @@ export function createKnowledgeModel(initialState: unknown = null) {
    */
   function sync(notes: Note[], at: number = Date.now()): KnowledgeSnapshot {
     const list = Array.isArray(notes) ? notes : [];
+    const previousNoteIndex = noteIndex;
     noteIndex = new Map(list.map((note) => [String(note.id), note]));
     const validIds = new Set(noteIndex.keys());
 
     list.forEach((note) => {
       const id = String(note.id);
-      if (state.notes[id]) return;
+      const existing = state.notes[id];
+      if (existing) {
+        const previous = previousNoteIndex.get(id);
+        const becameReviewEligible =
+          previous &&
+          !isReviewEligible(previous) &&
+          isReviewEligible(note);
+
+        /*
+         * Captura e autoria podem acontecer dias antes da conclusão. Uma nota
+         * nunca revisada começa a esquecer quando se torna revisável, não
+         * quando o primeiro rascunho foi salvo. Histórico existente jamais é
+         * reiniciado por uma troca posterior de estágio.
+         */
+        if (
+          becameReviewEligible &&
+          existing.reviewCount === 0 &&
+          !existing.lastReviewedAt &&
+          existing.history.length === 0
+        ) {
+          existing.baselineAt = dateNotAfter(note.updatedAt || note.createdAt, at);
+          existing.dueAt = null;
+          Object.assign(existing, initialSchedule(policy.initialNoteInterval));
+        }
+        return;
+      }
       state.notes[id] = {
         createdAt: dateNotAfter(note.createdAt, at),
         baselineAt: dateNotAfter(note.updatedAt || note.createdAt, at),

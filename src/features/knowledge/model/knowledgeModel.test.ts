@@ -74,6 +74,49 @@ describe("sync", () => {
 
     expect(model.noteInfo("a")!.reviewCount).toBe(before);
   });
+
+  test("inicia a retenção quando um rascunho se torna revisável", () => {
+    const model = createKnowledgeModel(null);
+    const createdAt = "2026-01-01T00:00:00.000Z";
+    const completedAt = "2026-05-01T12:00:00.000Z";
+    const draft = {
+      ...note("tardia"),
+      status: "draft" as const,
+      updatedAt: createdAt
+    };
+
+    model.sync([draft], Date.parse(createdAt));
+    model.sync(
+      [{ ...draft, status: "saved", updatedAt: completedAt }],
+      Date.parse(completedAt)
+    );
+
+    const info = model.noteInfo("tardia", Date.parse(completedAt))!;
+    expect(info.baselineAt).toBe(completedAt);
+    expect(info.strength).toBeCloseTo(1, 5);
+    expect(model.snapshot(Date.parse(completedAt)).metrics.reviewDue).toBe(0);
+  });
+
+  test("não reinicia histórico quando uma nota revisada volta a ficar elegível", () => {
+    const model = createKnowledgeModel(null);
+    const reviewedAt = "2026-02-01T00:00:00.000Z";
+    model.sync([note("a")], Date.parse("2026-01-01T00:00:00.000Z"));
+    model.reviewNote("a", 4, reviewedAt);
+
+    model.sync(
+      [{ ...note("a"), kind: "fleeting", updatedAt: "2026-03-01T00:00:00.000Z" }],
+      Date.parse("2026-03-01T00:00:00.000Z")
+    );
+    model.sync(
+      [{ ...note("a"), updatedAt: "2026-04-01T00:00:00.000Z" }],
+      Date.parse("2026-04-01T00:00:00.000Z")
+    );
+
+    const info = model.noteInfo("a")!;
+    expect(info.reviewCount).toBe(1);
+    expect(info.lastReviewedAt).toBe(reviewedAt);
+    expect(info.dueAt).toBe(new Date(Date.parse(reviewedAt) + DAY).toISOString());
+  });
 });
 
 describe("reviewNote", () => {
