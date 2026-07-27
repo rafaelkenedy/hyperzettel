@@ -46,8 +46,9 @@ sugestões automáticas não remove conexões manuais.
 
 Embeddings, relações automáticas e o checkpoint são reconstruíveis. Rejeições
 de sugestões representam uma decisão do usuário, não derivável do vault, e o
-backup JSON atual ainda não as exporta. Essa distinção e os critérios de
-recuperação estão no
+backup JSON v3 as exporta e restaura em lote. Backups anteriores continuam
+válidos e simplesmente não carregam essas decisões. Essa distinção e os
+critérios de recuperação estão no
 [ADR 0006](adr/0006-html-per-note-persistence.md).
 
 ## Limite offline

@@ -22,7 +22,7 @@ pub struct AppState {
     pub relation_service: Arc<RelationApplicationService>,
     /// Fonte da verdade das notas: um arquivo `.html` por nota (ADR 0006).
     pub vault: Arc<VaultStore>,
-    /// Índice derivado (metadados, busca FTS, conexões, retenção).
+    /// Estado operacional (projeções derivadas e retenção não derivável).
     pub note_index: Arc<SqliteNoteIndex>,
 }
 

@@ -66,7 +66,7 @@ fn save_note_document(
     mut row: NoteIndexRow,
     html: &str,
 ) -> Result<(), NoteCommandError> {
-    if !document_declares_id(&html, &row.id) {
+    if !document_declares_id(html, &row.id) {
         return Err(integrity_error(
             "vault_identity_mismatch",
             &format!("the note document does not declare hz:id '{}'", row.id),

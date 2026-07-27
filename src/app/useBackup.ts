@@ -9,6 +9,10 @@
 import { useCallback, useMemo } from "react";
 
 import { createBackupService } from "@/application/backupService";
+import {
+  exportRejectedRelations,
+  importRejectedRelations
+} from "@/features/knowledge";
 import { vaultRepository } from "@/infrastructure/vaultRepository";
 import { useAnnouncer } from "@/app/providers/AnnouncerProvider";
 import { useKnowledge } from "@/app/providers/KnowledgeProvider";
@@ -20,7 +24,13 @@ export function useBackup() {
   const { exportState, mergeImported } = useKnowledge();
 
   const service = useMemo(
-    () => createBackupService({ vault: vaultRepository, exportKnowledge: exportState }),
+    () =>
+      createBackupService({
+        vault: vaultRepository,
+        exportKnowledge: exportState,
+        exportRejectedRelations,
+        importRejectedRelations
+      }),
     [exportState]
   );
 
@@ -37,7 +47,12 @@ export function useBackup() {
       link.remove();
       window.setTimeout(() => URL.revokeObjectURL(url), 0);
       announce(
-        `${result.noteCount} ${result.noteCount === 1 ? "nota exportada" : "notas exportadas"}.`
+        `${result.noteCount} ${result.noteCount === 1 ? "nota exportada" : "notas exportadas"}; ` +
+          `${result.rejectedRelationCount} ${
+            result.rejectedRelationCount === 1
+              ? "decisão semântica incluída"
+              : "decisões semânticas incluídas"
+          }.`
       );
     } catch (error) {
       console.error(error);
@@ -58,7 +73,13 @@ export function useBackup() {
         adoptImported(result.notes);
 
         announce(
-          `${result.notes.length} ${result.notes.length === 1 ? "nota importada" : "notas importadas"}.`
+          `${result.notes.length} ${
+            result.notes.length === 1 ? "nota importada" : "notas importadas"
+          }; ${result.rejectedRelationCount} ${
+            result.rejectedRelationCount === 1
+              ? "decisão semântica restaurada"
+              : "decisões semânticas restauradas"
+          }.`
         );
       } catch (error) {
         console.error(error);

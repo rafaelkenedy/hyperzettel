@@ -8,6 +8,7 @@ segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 
 ### Added
 
+- O backup JSON v3 passa a preservar e restaurar também as decisões de rejeitar relações semânticas, com validação e importação transacional; backups v1 e v2 continuam compatíveis.
 - Primeiro ciclo guiado para vaults vazios: o usuário informa um assunto real e recebe uma nota de estrutura pronta para desenvolver perguntas, ideias e conexões.
 - Orientação contextual repete captura, processamento e conexão até formar um primeiro conjunto com três ideias permanentes ligadas ao mapa.
 - Notas de estrutura exibem uma seção derivada com as ideias conectadas e seus motivos, permitindo navegar pelo conjunto sem duplicar conteúdo entre arquivos.

@@ -34,7 +34,9 @@ Nota concluída e disponível para revisão.
 Conexão criada. Explique por que as notas se conectam.
 ```
 
-O menu da janela também exporta um arquivo `hyperzettel-notas-AAAA-MM-DD.json` com notas, imagens e histórico de aprendizagem.
+O menu da janela também exporta um arquivo
+`hyperzettel-notas-AAAA-MM-DD.json` com notas, imagens, histórico de
+aprendizagem e decisões de rejeitar sugestões semânticas.
 
 ## Instalação e pré-requisitos
 
@@ -100,7 +102,7 @@ novas identidades.
 
 Na aplicação Tauri, o frontend sincroniza as notas salvas com um serviço Rust. O serviço valida e carrega o EmbeddingGemma Q4 empacotado, gera embeddings localmente e grava o resultado em `hyperzettel.sqlite`. A configuração atual considera similaridade mínima de `0,68` e mantém até cinco relações automáticas por nota. A interface permite rejeitar, restaurar, pausar, continuar ou tentar novamente essa análise.
 
-O mapa de conhecimento combina conexões, estimativa de retenção e uma fila de revisão. A fila contém apenas notas vencidas e funciona como uma sessão finita: abre a primeira, avança após cada avaliação e mostra o progresso até a conclusão. Cada nota pode definir uma pergunta de recuperação própria; sem ela, o título vira a pista. A resposta e os graus de lembrança aparecem somente depois da revelação. O agendamento usa SM-2 para recalcular o próximo intervalo. A exportação JSON reúne notas, imagens e esse histórico de aprendizagem.
+O mapa de conhecimento combina conexões, estimativa de retenção e uma fila de revisão. A fila contém apenas notas vencidas e funciona como uma sessão finita: abre a primeira, avança após cada avaliação e mostra o progresso até a conclusão. Cada nota pode definir uma pergunta de recuperação própria; sem ela, o título vira a pista. A resposta e os graus de lembrança aparecem somente depois da revelação. O agendamento usa SM-2 para recalcular o próximo intervalo. A exportação JSON reúne notas, imagens, esse histórico de aprendizagem e as decisões de rejeitar sugestões semânticas.
 
 Os arquivos do modelo e seus hashes estão em `src-tauri/resources/models/embeddinggemma-300m-q4`. Os termos do EmbeddingGemma e o notice distribuído com o aplicativo estão em `src-tauri/resources/licenses`.
 

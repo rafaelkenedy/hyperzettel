@@ -62,7 +62,8 @@ os mesmos privilégios.
 - A CSP permite scripts apenas do bundle local e restringe `connect-src` ao
   próprio app e ao IPC.
 - O backup rejeita formato desconhecido, entradas sem coleção válida e arquivos
-  maiores que 120 MB.
+  maiores que 120 MB. Rejeições semânticas têm limite de quantidade e validação
+  de IDs, hashes, pipeline e timestamp antes da gravação transacional do lote.
 
 ### IPC e identidade
 
@@ -85,8 +86,9 @@ os mesmos privilégios.
 - Atualizações da projeção de uma nota usam transação.
 - Divergência de nome ou hash provoca reconciliação.
 - Metadados, FTS, embeddings e relações automáticas podem ser refeitos.
-- Histórico de revisão e rejeições semânticas precisam de tratamento de backup
-  porque não são derivados dos HTMLs.
+- O backup v3 inclui histórico de revisão e rejeições semânticas, que não são
+  derivados dos HTMLs; versões anteriores permanecem compatíveis sem esse
+  segundo conjunto.
 
 ## Cenários obrigatórios de teste
 
@@ -105,7 +107,7 @@ sempre que a fronteira de persistência mudar.
 
 | Prioridade | Risco | Próximo controle recomendado |
 | --- | --- | --- |
-| Alta | Perda do histórico não derivável com corrupção/remoção do SQLite | Tornar backup periódico visível e incluir rejeições semânticas no formato exportado. |
+| Alta | Perda de estado não derivável desde o último backup manual | Tornar a necessidade de backup periódico visível e oferecer uma rotina assistida. |
 | Alta | Exaustão de memória por HTML/base64 grande | Definir limites por documento e validar antes de transferir/parsear. |
 | Média | Mudança externa não percebida durante sessão longa | Observar o diretório ou oferecer ação clara de recarregar/reconciliar. |
 | Média | Corrida TOCTOU com outro processo local | Revalidar hash o mais próximo possível da publicação e documentar o limite de concorrência. |

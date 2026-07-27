@@ -5,6 +5,7 @@
  * então o backup não tem mais um array de imagens à parte no export. A
  * importação ainda aceita os formatos anteriores:
  *
+ * - `hyperzettelkasten` v3 — notas + retenção + rejeições semânticas;
  * - `hyperzettelkasten` v2 — notas + imagens (por `data-image-id`) + retenção;
  * - `hyperzettelkasten` v1 — notas com `links` e pastas `"00 Inbox"`;
  * - `hyperzettel-notes` v1 — o formato legado enxuto;
@@ -15,7 +16,7 @@
  */
 
 import { normalizeImportedNote, type Note } from "@/domain/notes";
-import type { KnowledgeState } from "@/features/knowledge";
+import type { KnowledgeState, RejectedRelation } from "@/features/knowledge";
 import { sanitizeNoteContent } from "@/shared/html";
 import { parseHtmlDocumentToNote } from "@/shared/noteDocument";
 import type { VaultRepository } from "@/infrastructure/vaultRepository";
@@ -30,9 +31,11 @@ const FOLDER_MAP: Record<string, string> = {
 };
 
 const BACKUP_FORMAT = "hyperzettelkasten";
-const BACKUP_VERSION = 2;
+const BACKUP_VERSION = 3;
 const LEGACY_FORMAT = "hyperzettel-notes";
 const MAX_BACKUP_SIZE = 120_000_000;
+const MAX_REJECTED_RELATIONS = 100_000;
+const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 
 /**
  * Traduz uma nota do esquema antigo para o atual: `links` viram `connections`,
@@ -85,8 +88,63 @@ function inlineImages(html: unknown, images: Map<string, string>): string {
   return container.innerHTML;
 }
 
+function parseRejectedRelations(
+  value: unknown,
+  noteIds: ReadonlySet<string>
+): RejectedRelation[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.length > MAX_REJECTED_RELATIONS) {
+    throw new Error("As decisões de relações semânticas do backup são inválidas.");
+  }
+
+  const pairs = new Set<string>();
+  return value.map((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new Error("O backup contém uma decisão semântica inválida.");
+    }
+    const source = entry as Record<string, unknown>;
+    const fields = [
+      "firstNoteId",
+      "secondNoteId",
+      "firstContentHash",
+      "secondContentHash",
+      "pipelineVersion",
+      "rejectedAt"
+    ] as const;
+    if (fields.some((field) => typeof source[field] !== "string")) {
+      throw new Error("O backup contém uma decisão semântica incompleta.");
+    }
+
+    const rejected = Object.fromEntries(
+      fields.map((field) => [field, source[field]])
+    ) as RejectedRelation;
+    const pair = `${rejected.firstNoteId}\u0000${rejected.secondNoteId}`;
+    if (
+      rejected.firstNoteId >= rejected.secondNoteId ||
+      rejected.firstNoteId.length > 256 ||
+      rejected.secondNoteId.length > 256 ||
+      !noteIds.has(rejected.firstNoteId) ||
+      !noteIds.has(rejected.secondNoteId) ||
+      !SHA256_PATTERN.test(rejected.firstContentHash) ||
+      !SHA256_PATTERN.test(rejected.secondContentHash) ||
+      !rejected.pipelineVersion ||
+      rejected.pipelineVersion.length > 256 ||
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(
+        rejected.rejectedAt
+      ) ||
+      Number.isNaN(Date.parse(rejected.rejectedAt)) ||
+      pairs.has(pair)
+    ) {
+      throw new Error("O backup contém uma decisão semântica inconsistente.");
+    }
+    pairs.add(pair);
+    return rejected;
+  });
+}
+
 export interface ExportResult {
   noteCount: number;
+  rejectedRelationCount: number;
   blob: Blob;
   fileName: string;
 }
@@ -94,16 +152,27 @@ export interface ExportResult {
 export interface ImportResult {
   notes: Note[];
   knowledge: unknown | null;
+  rejectedRelationCount: number;
 }
 
 export interface BackupDeps {
   vault: VaultRepository;
   exportKnowledge: () => KnowledgeState;
+  exportRejectedRelations: () => Promise<RejectedRelation[]>;
+  importRejectedRelations: (rejected: readonly RejectedRelation[]) => Promise<number>;
 }
 
-export function createBackupService({ vault, exportKnowledge }: BackupDeps) {
+export function createBackupService({
+  vault,
+  exportKnowledge,
+  exportRejectedRelations,
+  importRejectedRelations
+}: BackupDeps) {
   async function exportBackup(): Promise<ExportResult> {
-    const documents = await vault.readAllDocuments();
+    const [documents, rejectedRelations] = await Promise.all([
+      vault.readAllDocuments(),
+      exportRejectedRelations()
+    ]);
     const notes = documents
       .map((document) => parseHtmlDocumentToNote(document.html))
       .filter((note): note is Note => note !== null);
@@ -113,17 +182,23 @@ export function createBackupService({ vault, exportKnowledge }: BackupDeps) {
       version: BACKUP_VERSION,
       exportedAt: new Date().toISOString(),
       notes,
-      knowledge: exportKnowledge()
+      knowledge: exportKnowledge(),
+      rejectedRelations
     };
 
     return {
       noteCount: notes.length,
+      rejectedRelationCount: rejectedRelations.length,
       blob: new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" }),
       fileName: `hyperzettel-notas-${new Date().toISOString().slice(0, 10)}.json`
     };
   }
 
-  function parseBackup(source: string): { notes: Note[]; knowledge: unknown | null } {
+  function parseBackup(source: string): {
+    notes: Note[];
+    knowledge: unknown | null;
+    rejectedRelations: RejectedRelation[];
+  } {
     const parsed = JSON.parse(source);
     const sourceNotes = Array.isArray(parsed) ? parsed : parsed?.notes;
     if (!Array.isArray(sourceNotes)) {
@@ -149,7 +224,9 @@ export function createBackupService({ vault, exportKnowledge }: BackupDeps) {
       throw new Error("Nenhuma nota válida foi encontrada no arquivo.");
     }
 
-    return { notes, knowledge: parsed?.knowledge ?? null };
+    const noteIds = new Set(notes.map((note) => note.id));
+    const rejectedRelations = parseRejectedRelations(parsed?.rejectedRelations, noteIds);
+    return { notes, knowledge: parsed?.knowledge ?? null, rejectedRelations };
   }
 
   async function importBackup(file: File | null): Promise<ImportResult | null> {
@@ -160,7 +237,12 @@ export function createBackupService({ vault, exportKnowledge }: BackupDeps) {
     const backup = parseBackup(await file.text());
     for (const note of backup.notes) await vault.save(note);
     if (backup.knowledge) await vault.setRetention(backup.knowledge);
-    return { notes: backup.notes, knowledge: backup.knowledge };
+    const rejectedRelationCount = await importRejectedRelations(backup.rejectedRelations);
+    return {
+      notes: backup.notes,
+      knowledge: backup.knowledge,
+      rejectedRelationCount
+    };
   }
 
   return { exportBackup, importBackup };

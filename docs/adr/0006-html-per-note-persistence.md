@@ -57,10 +57,11 @@ an external edit during a long-running session may require reload/reopen.
 | Embeddings or automatic relations | Rerun semantic indexing | Processing time |
 | Queue checkpoint | Restart indexing | Intermediate progress |
 | Retention history | Import an exported JSON backup | Reviews after the last backup |
-| Rejected semantic relations | Re-evaluate suggestions | Previous rejection decisions |
+| Rejected semantic relations | Import a v3 JSON backup | Decisions after the last backup |
 
-The current JSON backup includes notes and retention history. It does not yet
-include rejected semantic relations.
+The v3 JSON backup includes notes, retention history, and rejected semantic
+relations. Earlier formats remain import-compatible and restore no rejection
+state.
 
 Security boundaries, abuse cases, and residual risks are maintained in the
 [vault threat model](../security/vault-threat-model.md).
@@ -82,7 +83,8 @@ Security boundaries, abuse cases, and residual risks are maintained in the
 - **External-write conflicts fail closed.** The application does not overwrite a file whose hash changed since it was indexed; the in-memory draft remains dirty and the user is told to reconcile the vault.
 - **File names remain human-friendly but stable.** Renaming a title does not rename its file. Users may rename files manually because the convention is optional.
 - **Backups remain necessary.** Deleting or corrupting SQLite does not lose note
-  documents, but can lose retention history and rejected-relation decisions.
+  documents, but can lose retention history and rejected-relation decisions
+  made after the most recent backup.
 - **Atomic publication is not a full power-loss guarantee.** The implementation
   synchronizes the temporary file before `rename`, but does not explicitly
   synchronize the parent directory.

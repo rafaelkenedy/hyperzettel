@@ -15,9 +15,10 @@ use commands::notes::{
     search_notes, set_retention_state,
 };
 use commands::relations::{
-    enqueue_note_indexing, get_related_notes, get_relation_status, pause_relation_indexing,
-    rebuild_knowledge_relations, reject_automatic_relation, remove_note_from_knowledge_index,
-    restore_automatic_relation, resume_relation_indexing, sync_knowledge_notes,
+    enqueue_note_indexing, export_rejected_relations, get_related_notes, get_relation_status,
+    import_rejected_relations, pause_relation_indexing, rebuild_knowledge_relations,
+    reject_automatic_relation, remove_note_from_knowledge_index, restore_automatic_relation,
+    resume_relation_indexing, sync_knowledge_notes,
 };
 use commands::vault::{
     adopt_note_file, get_vault_info, list_note_files, open_vault_folder, read_all_note_files,
@@ -58,6 +59,8 @@ pub fn run() {
             resume_relation_indexing,
             reject_automatic_relation,
             restore_automatic_relation,
+            export_rejected_relations,
+            import_rejected_relations,
             remove_note_from_knowledge_index,
             list_note_files,
             read_all_note_files,
