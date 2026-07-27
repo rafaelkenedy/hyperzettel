@@ -40,8 +40,11 @@ export interface NoteIndexRow {
 /** Documento cru do vault, usado só na reindexação/migração. */
 export interface VaultDocument {
   fileName: string;
-  html: string;
+  /** `null` significa que o backend isolou o arquivo antes de lê-lo. */
+  html: string | null;
   contentHash: string;
+  sizeBytes?: number;
+  maxBytes?: number;
 }
 
 export interface VaultFingerprint {
@@ -50,9 +53,11 @@ export interface VaultFingerprint {
 }
 
 export interface VaultIntegrityIssue {
-  code: "missing_id" | "duplicate_id";
+  code: "missing_id" | "duplicate_id" | "document_too_large";
   fileNames: string[];
   id?: string;
+  sizeBytes?: number;
+  maxBytes?: number;
 }
 
 export interface ReindexReport {
@@ -73,6 +78,26 @@ export interface VaultInspection extends ReindexReport {
 export interface DuplicateResolution {
   keeperFileName: string;
   separated: Note[];
+}
+
+/** Espelha o teto autoritativo `MAX_NOTE_DOCUMENT_BYTES` do backend Rust. */
+export const MAX_NOTE_DOCUMENT_BYTES = 25 * 1024 * 1024;
+
+function utf8Size(value: string): number {
+  return new Blob([value]).size;
+}
+
+function assertDocumentFits(html: string): void {
+  const actualBytes = utf8Size(html);
+  if (actualBytes <= MAX_NOTE_DOCUMENT_BYTES) return;
+  throw {
+    code: "note_document_too_large",
+    message:
+      `A nota ocupa ${actualBytes} bytes; o limite é ` +
+      `${MAX_NOTE_DOCUMENT_BYTES} bytes.`,
+    actualBytes,
+    maxBytes: MAX_NOTE_DOCUMENT_BYTES
+  };
 }
 
 /**
@@ -148,9 +173,11 @@ async function read(id: string): Promise<Note | null> {
  * vez. A repetição é segura porque o backend compara hash e identidade.
  */
 async function save(note: Note): Promise<void> {
+  const html = serializeNoteToHtmlDocument(note);
+  assertDocumentFits(html);
   const payload = {
     row: toIndexRow(note),
-    html: serializeNoteToHtmlDocument(note)
+    html
   };
   try {
     await invoke("save_note", payload);
@@ -159,6 +186,7 @@ async function save(note: Note): Promise<void> {
     const { documents } = await repairIndexFromVault();
     const htmlReachedVault = documents.some(
       (document) =>
+        document.html !== null &&
         document.html === payload.html &&
         parseHtmlDocumentToNote(document.html)?.id === note.id
     );
@@ -222,6 +250,15 @@ function rebuildIndex(rows: NoteIndexRow[]): Promise<void> {
 export function inspectVaultDocuments(documents: VaultDocument[]): VaultInspection {
   const issues: VaultIntegrityIssue[] = [];
   const parsed = documents.flatMap((document) => {
+    if (document.html === null) {
+      issues.push({
+        code: "document_too_large",
+        fileNames: [document.fileName],
+        sizeBytes: document.sizeBytes,
+        maxBytes: document.maxBytes
+      });
+      return [];
+    }
     const note = parseHtmlDocumentToNote(document.html);
     if (!note) {
       issues.push({ code: "missing_id", fileNames: [document.fileName] });
@@ -301,6 +338,12 @@ async function adoptDocument(fileName: string): Promise<Note> {
       message: `O arquivo ${fileName} não está mais no vault.`
     };
   }
+  if (document.html === null) {
+    throw {
+      code: "note_document_too_large",
+      message: `O arquivo ${fileName} excede o limite por nota.`
+    };
+  }
 
   const note = adoptHtmlDocumentAsNote(document.html);
   if (!note) {
@@ -345,6 +388,7 @@ async function resolveDuplicateId(
   }
 
   const duplicates = documents.flatMap((document) => {
+    if (document.html === null) return [];
     const note = parseHtmlDocumentToNote(document.html);
     return note?.id === id ? [{ document, note }] : [];
   });
@@ -461,6 +505,8 @@ export function vaultErrorMessage(error: unknown, fallback: string): string {
       return "Os arquivos mudaram desde a verificação. Verifique o vault novamente antes de separar as cópias.";
     case "duplicate_resolution_incomplete":
       return "Nem todas as cópias puderam ser separadas. Verifique o vault e tente novamente.";
+    case "note_document_too_large":
+      return "A nota excede o limite de 25 MB por arquivo. Remova imagens grandes ou divida o conteúdo em mais notas.";
     default:
       return fallback;
   }

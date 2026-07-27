@@ -173,8 +173,17 @@ export function createBackupService({
       vault.readAllDocuments(),
       exportRejectedRelations()
     ]);
+    const oversized = documents.filter((document) => document.html === null);
+    if (oversized.length) {
+      throw new Error(
+        `O backup não foi exportado: ${oversized.length} arquivo(s) do vault excedem ` +
+          "o limite de 25 MB. Reduza-os ou mova-os para fora do vault e tente novamente."
+      );
+    }
     const notes = documents
-      .map((document) => parseHtmlDocumentToNote(document.html))
+      .map((document) =>
+        document.html === null ? null : parseHtmlDocumentToNote(document.html)
+      )
       .filter((note): note is Note => note !== null);
 
     const backup = {

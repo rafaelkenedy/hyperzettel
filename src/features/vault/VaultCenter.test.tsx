@@ -117,6 +117,28 @@ describe("VaultCenter", () => {
     expect(screen.getByText(/feita ontem/)).toBeTruthy();
   });
 
+  test("expõe arquivo grande como conflito recuperável sem ação destrutiva", async () => {
+    mocks.inspectVault.mockResolvedValue({
+      indexed: 1,
+      rows: [],
+      issues: [
+        {
+          code: "document_too_large",
+          fileNames: ["atlas-visual.html"],
+          sizeBytes: 31_457_280,
+          maxBytes: 26_214_400
+        }
+      ]
+    });
+
+    renderVaultCenter();
+
+    expect(await screen.findByText("Arquivos muito grandes")).toBeTruthy();
+    expect(screen.getByText("atlas-visual.html")).toBeTruthy();
+    expect(screen.getByText("30.0 MB · máximo 25.0 MB")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Adotar" })).toBeNull();
+  });
+
   test("adota arquivo externo, atualiza a coleção e verifica novamente", async () => {
     const adopted = createNoteRecord({
       id: "adopted-id",

@@ -1,11 +1,16 @@
-use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::fs::{self, File, OpenOptions};
+use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use uuid::Uuid;
+
+/// Teto por documento auto-contido. Imagens inseridas pelo app ocupam no
+/// máximo ~1,8 MB cada; 25 MiB preservam um uso generoso sem permitir que um
+/// único arquivo externo consuma memória sem limite na fronteira IPC.
+pub const MAX_NOTE_DOCUMENT_BYTES: u64 = 25 * 1024 * 1024;
 
 /// Erros do armazenamento de notas em arquivo. Cada variante inclui o valor
 /// ofensor e a forma esperada, para diagnóstico (ver guia de estilo).
@@ -19,6 +24,12 @@ pub enum VaultError {
     PathEscapesVault { resolved: String, root: String },
     #[error("note path '{0}' is a symbolic link or unsupported file type")]
     UnsafeFileType(String),
+    #[error("note file '{file_name}' has {actual_bytes} bytes; the maximum is {max_bytes} bytes")]
+    DocumentTooLarge {
+        file_name: String,
+        actual_bytes: u64,
+        max_bytes: u64,
+    },
     #[error("vault write lock is poisoned")]
     LockPoisoned,
     #[error("failed to {action} note file '{path}': {source}")]
@@ -48,6 +59,14 @@ impl VaultError {
 pub struct VaultStore {
     root: PathBuf,
     write_lock: Arc<Mutex<()>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VaultDocument {
+    pub file_name: String,
+    pub html: Option<String>,
+    pub content_hash: String,
+    pub size_bytes: u64,
 }
 
 impl VaultStore {
@@ -94,6 +113,7 @@ impl VaultStore {
     /// Grava o documento de forma atômica (arquivo temporário + rename), para
     /// nunca deixar uma nota meio-escrita se o processo cair no meio.
     pub fn write_note(&self, file_name: &str, html: &str) -> Result<(), VaultError> {
+        validate_document_size(file_name, html.len() as u64)?;
         let _guard = self
             .write_lock
             .lock()
@@ -106,6 +126,7 @@ impl VaultStore {
     /// Cria uma nota somente se o nome ainda estiver livre. A checagem e a
     /// publicação são serializadas com as demais escritas deste vault.
     pub fn write_new_note(&self, file_name: &str, html: &str) -> Result<bool, VaultError> {
+        validate_document_size(file_name, html.len() as u64)?;
         let _guard = self
             .write_lock
             .lock()
@@ -127,14 +148,14 @@ impl VaultStore {
     /// Lê o documento HTML de uma nota pelo nome de arquivo.
     pub fn read_note(&self, file_name: &str) -> Result<String, VaultError> {
         let path = self.safe_note_path(file_name)?;
-        fs::read_to_string(&path).map_err(|source| VaultError::io("read", &path, source))
+        read_bounded_document(&path, file_name)
     }
 
-    /// SHA-256 do documento físico atual.
+    /// SHA-256 do documento físico atual, calculado em streaming para não
+    /// carregar um arquivo externo inteiro na memória.
     pub fn note_hash(&self, file_name: &str) -> Result<String, VaultError> {
         let path = self.safe_note_path(file_name)?;
-        let bytes = fs::read(&path).map_err(|source| VaultError::io("hash", &path, source))?;
-        Ok(content_hash(&bytes))
+        hash_file(&path)
     }
 
     /// Nomes cujo conteúdo possui o hash informado.
@@ -156,13 +177,38 @@ impl VaultStore {
 
     /// Lê todos os documentos do vault de uma vez (nome + html), para o
     /// carregamento inicial fazer um único IPC em vez de N leituras.
-    pub fn read_all_documents(&self) -> Result<Vec<(String, String, String)>, VaultError> {
+    pub fn read_all_documents(&self) -> Result<Vec<VaultDocument>, VaultError> {
         self.list_note_files()?
             .into_iter()
             .map(|name| {
-                self.read_note(&name).map(|html| {
-                    let hash = content_hash(html.as_bytes());
-                    (name, html, hash)
+                let path = self.safe_note_path(&name)?;
+                let size_bytes = document_size(&path)?;
+                if size_bytes > MAX_NOTE_DOCUMENT_BYTES {
+                    return Ok(VaultDocument {
+                        file_name: name,
+                        html: None,
+                        content_hash: oversized_fingerprint(size_bytes),
+                        size_bytes,
+                    });
+                }
+                let html = match read_bounded_document(&path, &name) {
+                    Ok(html) => html,
+                    Err(VaultError::DocumentTooLarge { actual_bytes, .. }) => {
+                        return Ok(VaultDocument {
+                            file_name: name,
+                            html: None,
+                            content_hash: oversized_fingerprint(actual_bytes),
+                            size_bytes: actual_bytes,
+                        });
+                    }
+                    Err(error) => return Err(error),
+                };
+                let content_hash = content_hash(html.as_bytes());
+                Ok(VaultDocument {
+                    file_name: name,
+                    html: Some(html),
+                    content_hash,
+                    size_bytes,
                 })
             })
             .collect()
@@ -172,7 +218,16 @@ impl VaultStore {
     pub fn list_note_fingerprints(&self) -> Result<Vec<(String, String)>, VaultError> {
         self.list_note_files()?
             .into_iter()
-            .map(|name| self.note_hash(&name).map(|hash| (name, hash)))
+            .map(|name| {
+                let path = self.safe_note_path(&name)?;
+                let size_bytes = document_size(&path)?;
+                let fingerprint = if size_bytes > MAX_NOTE_DOCUMENT_BYTES {
+                    oversized_fingerprint(size_bytes)
+                } else {
+                    hash_file(&path)?
+                };
+                Ok((name, fingerprint))
+            })
             .collect()
     }
 
@@ -222,6 +277,54 @@ impl VaultStore {
         }
         Ok(path)
     }
+}
+
+fn document_size(path: &Path) -> Result<u64, VaultError> {
+    fs::metadata(path)
+        .map(|metadata| metadata.len())
+        .map_err(|source| VaultError::io("inspect", path, source))
+}
+
+fn validate_document_size(file_name: &str, actual_bytes: u64) -> Result<(), VaultError> {
+    if actual_bytes > MAX_NOTE_DOCUMENT_BYTES {
+        return Err(VaultError::DocumentTooLarge {
+            file_name: file_name.to_owned(),
+            actual_bytes,
+            max_bytes: MAX_NOTE_DOCUMENT_BYTES,
+        });
+    }
+    Ok(())
+}
+
+/// Lê no máximo `limite + 1`: mesmo se o arquivo crescer depois da consulta de
+/// metadados, a alocação continua limitada e a corrida vira erro explícito.
+fn read_bounded_document(path: &Path, file_name: &str) -> Result<String, VaultError> {
+    let file = File::open(path).map_err(|source| VaultError::io("open", path, source))?;
+    let initial_size = file
+        .metadata()
+        .map_err(|source| VaultError::io("inspect", path, source))?
+        .len();
+    validate_document_size(file_name, initial_size)?;
+
+    let mut html = String::with_capacity(initial_size as usize);
+    file.take(MAX_NOTE_DOCUMENT_BYTES + 1)
+        .read_to_string(&mut html)
+        .map_err(|source| VaultError::io("read", path, source))?;
+    validate_document_size(file_name, html.len() as u64)?;
+    Ok(html)
+}
+
+fn hash_file(path: &Path) -> Result<String, VaultError> {
+    let file = File::open(path).map_err(|source| VaultError::io("open for hash", path, source))?;
+    let mut reader = BufReader::new(file);
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut reader, &mut hasher)
+        .map_err(|source| VaultError::io("hash", path, source))?;
+    Ok(hex::encode(hasher.finalize()))
+}
+
+fn oversized_fingerprint(size_bytes: u64) -> String {
+    format!("oversized:{size_bytes}")
 }
 
 /// Um nome de arquivo seguro é um único componente, sem separadores nem `..`.
@@ -356,17 +459,64 @@ mod tests {
         assert_eq!(
             store.read_all_documents().unwrap(),
             vec![
-                (
-                    "a--1.html".to_owned(),
-                    "<p>um</p>".to_owned(),
-                    content_hash(b"<p>um</p>")
-                ),
-                (
-                    "b--2.html".to_owned(),
-                    "<p>dois</p>".to_owned(),
-                    content_hash(b"<p>dois</p>")
-                )
+                VaultDocument {
+                    file_name: "a--1.html".to_owned(),
+                    html: Some("<p>um</p>".to_owned()),
+                    content_hash: content_hash(b"<p>um</p>"),
+                    size_bytes: 9,
+                },
+                VaultDocument {
+                    file_name: "b--2.html".to_owned(),
+                    html: Some("<p>dois</p>".to_owned()),
+                    content_hash: content_hash(b"<p>dois</p>"),
+                    size_bytes: 11,
+                }
             ]
+        );
+    }
+
+    #[test]
+    fn rejects_a_document_above_the_per_note_limit() {
+        assert!(matches!(
+            validate_document_size("grande.html", MAX_NOTE_DOCUMENT_BYTES + 1),
+            Err(VaultError::DocumentTooLarge {
+                actual_bytes,
+                max_bytes: MAX_NOTE_DOCUMENT_BYTES,
+                ..
+            }) if actual_bytes == MAX_NOTE_DOCUMENT_BYTES + 1
+        ));
+    }
+
+    #[test]
+    fn isolates_an_oversized_external_document_without_reading_it() {
+        let store = temp_vault();
+        let path = store.root().join("externa.html");
+        let file = File::create(&path).unwrap();
+        file.set_len(MAX_NOTE_DOCUMENT_BYTES + 1).unwrap();
+
+        let documents = store.read_all_documents().unwrap();
+        assert_eq!(
+            documents,
+            vec![VaultDocument {
+                file_name: "externa.html".to_owned(),
+                html: None,
+                content_hash: oversized_fingerprint(MAX_NOTE_DOCUMENT_BYTES + 1),
+                size_bytes: MAX_NOTE_DOCUMENT_BYTES + 1,
+            }]
+        );
+        assert!(matches!(
+            store.read_note("externa.html"),
+            Err(VaultError::DocumentTooLarge { .. })
+        ));
+    }
+
+    #[test]
+    fn hashes_documents_in_streaming_mode() {
+        let store = temp_vault();
+        store.write_note("nota.html", "conteúdo").unwrap();
+        assert_eq!(
+            store.note_hash("nota.html").unwrap(),
+            content_hash("conteúdo".as_bytes())
         );
     }
 

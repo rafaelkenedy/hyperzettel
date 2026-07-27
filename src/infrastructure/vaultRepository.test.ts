@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { createNoteRecord } from "@/domain/notes";
 import {
   inspectVaultDocuments,
+  MAX_NOTE_DOCUMENT_BYTES,
   toIndexRow
 } from "@/infrastructure/vaultRepository";
 import {
@@ -105,6 +106,25 @@ describe("toIndexRow", () => {
     await expect(vaultRepository.remove("internal-id")).resolves.toBeUndefined();
     expect(invokeMock).toHaveBeenCalledWith("read_note", { id: "internal-id" });
     expect(invokeMock).toHaveBeenCalledWith("delete_note", { id: "internal-id" });
+  });
+
+  test("recusa uma nota acima de 25 MiB antes de atravessar o IPC", async () => {
+    const { vaultRepository } = await import("@/infrastructure/vaultRepository");
+    const size = vi
+      .spyOn(Blob.prototype, "size", "get")
+      .mockReturnValue(MAX_NOTE_DOCUMENT_BYTES + 1);
+    const note = createNoteRecord({
+      id: "large-id",
+      title: "Grande",
+      content: "<p>conteúdo</p>"
+    });
+
+    await expect(vaultRepository.save(note)).rejects.toMatchObject({
+      code: "note_document_too_large",
+      maxBytes: MAX_NOTE_DOCUMENT_BYTES
+    });
+    expect(invokeMock).not.toHaveBeenCalled();
+    size.mockRestore();
   });
 
   test("repara o índice e repete o save quando o HTML já foi gravado", async () => {
@@ -570,6 +590,31 @@ describe("toIndexRow", () => {
       contentHash: "hash-valid"
     });
     expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  test("isola documento grande sem tentar parsear conteúdo ausente", () => {
+    expect(
+      inspectVaultDocuments([
+        {
+          fileName: "arquivo-grande.html",
+          html: null,
+          contentHash: "oversized:26214401",
+          sizeBytes: 26_214_401,
+          maxBytes: 26_214_400
+        }
+      ])
+    ).toEqual({
+      indexed: 0,
+      rows: [],
+      issues: [
+        {
+          code: "document_too_large",
+          fileNames: ["arquivo-grande.html"],
+          sizeBytes: 26_214_401,
+          maxBytes: 26_214_400
+        }
+      ]
+    });
   });
 
   test("adota HTML externo preservando o nome e protegendo a versão pelo hash", async () => {

@@ -245,6 +245,30 @@ describe("recusas", () => {
 });
 
 describe("exportação", () => {
+  test("não anuncia backup completo quando um HTML grande foi isolado", async () => {
+    const vault = {
+      readAllDocuments: async () => [
+        {
+          fileName: "grande.html",
+          html: null,
+          contentHash: "oversized:30000000",
+          sizeBytes: 30_000_000,
+          maxBytes: 26_214_400
+        }
+      ]
+    } as unknown as VaultRepository;
+    const service = createBackupService({
+      vault,
+      exportKnowledge: emptyKnowledge,
+      exportRejectedRelations: async () => [],
+      importRejectedRelations: async () => 0
+    });
+
+    await expect(service.exportBackup()).rejects.toThrow(
+      /backup não foi exportado.*excedem o limite de 25 MB/i
+    );
+  });
+
   test("declara o formato atual e embute o histórico", async () => {
     const knowledge: KnowledgeState = {
       version: 1,

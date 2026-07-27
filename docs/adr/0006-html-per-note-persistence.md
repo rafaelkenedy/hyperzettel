@@ -79,6 +79,10 @@ Security boundaries, abuse cases, and residual risks are maintained in the
 - **More Rust/fs engineering:** vault commands (read/write/list/delete), atomic writes, capability scoping, path-traversal guards, and reindex-from-vault. IndexedDB's free transactional/indexed store is replaced by SQLite + files.
 - **No migration.** There is no installed user base (single developer testing), so the legacy IndexedDB store and its migration path were removed; persistence is the vault from first run. The index reconciles from the vault on startup when it is empty (fresh device / synced vault / wiped index).
 - **Bigger note files / no image dedup** from base64 inline; search indexing excludes base64 so query latency is unaffected.
+- **A note is capped at 25 MiB.** The app rejects generated documents above the
+  cap before IPC, and the backend isolates larger external HTMLs without
+  reading or parsing them. The original file remains visible in the vault and
+  the Central do Vault explains how to recover it.
 - **`<meta>` for connections** is slightly awkward (repeated tags) but keeps everything in one file; the SQLite index is the queryable form.
 - **External-write conflicts fail closed.** The application does not overwrite a file whose hash changed since it was indexed; the in-memory draft remains dirty and the user is told to reconcile the vault.
 - **File names remain human-friendly but stable.** Renaming a title does not rename its file. Users may rename files manually because the convention is optional.

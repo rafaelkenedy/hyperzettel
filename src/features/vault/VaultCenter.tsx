@@ -23,6 +23,7 @@ import { useNotes } from "@/app/providers/NotesProvider";
 import type { BackupStatus } from "@/application/backupReminder";
 import { enqueueNoteIndexing } from "@/features/knowledge";
 import {
+  MAX_NOTE_DOCUMENT_BYTES,
   vaultErrorMessage,
   vaultRepository,
   type VaultInfo,
@@ -38,9 +39,9 @@ function formatBytes(bytes: number): string {
 }
 
 function issueLabel(issue: VaultIntegrityIssue): string {
-  return issue.code === "missing_id"
-    ? "Arquivo externo sem identidade"
-    : "Identidade duplicada";
+  if (issue.code === "missing_id") return "Arquivo externo sem identidade";
+  if (issue.code === "document_too_large") return "Arquivo acima do limite";
+  return "Identidade duplicada";
 }
 
 function backupCopy(status: BackupStatus): { title: string; detail: string } {
@@ -127,6 +128,10 @@ export function VaultCenter({
   );
   const duplicateIds = useMemo(
     () => inspection?.issues.filter((issue) => issue.code === "duplicate_id") ?? [],
+    [inspection]
+  );
+  const oversizedDocuments = useMemo(
+    () => inspection?.issues.filter((issue) => issue.code === "document_too_large") ?? [],
     [inspection]
   );
 
@@ -413,6 +418,43 @@ export function VaultCenter({
                         ) : null}
                         Adotar
                       </Button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
+          ) : null}
+
+          {oversizedDocuments.length ? (
+            <section className="mt-5">
+              <h3 className="text-[13px] font-semibold">Arquivos muito grandes</h3>
+              <p className="mt-0.5 text-2xs leading-relaxed text-text-secondary">
+                Estes arquivos permanecem intactos no disco, mas ficam fora do índice para não
+                comprometer a abertura do vault. Reduza-os para até 25 MB e verifique novamente.
+              </p>
+              <div className="mt-2 flex flex-col gap-2">
+                {oversizedDocuments.flatMap((issue) =>
+                  issue.fileNames.map((fileName) => (
+                    <div
+                      key={fileName}
+                      className="flex items-center gap-3 rounded-lg border border-border-primary px-3 py-2.5"
+                    >
+                      <TriangleAlert
+                        className="size-4 shrink-0 text-[#7a5411]"
+                        strokeWidth={1.75}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs font-medium" title={fileName}>
+                          {fileName}
+                        </p>
+                        <p className="text-2xs text-text-secondary">
+                          {typeof issue.sizeBytes === "number"
+                            ? `${formatBytes(issue.sizeBytes)} · máximo ${formatBytes(
+                                issue.maxBytes ?? MAX_NOTE_DOCUMENT_BYTES
+                              )}`
+                            : issueLabel(issue)}
+                        </p>
+                      </div>
                     </div>
                   ))
                 )}

@@ -7,7 +7,7 @@ use crate::{
     database::DatabaseError,
     note_index::{NoteIndexRow, SqliteNoteIndex},
     state::AppState,
-    vault::{VaultError, VaultStore},
+    vault::{VaultError, VaultStore, MAX_NOTE_DOCUMENT_BYTES},
 };
 
 /// Erro de comando do vault entregue ao frontend. Mantém `code` estável para o
@@ -43,6 +43,7 @@ fn error_code(error: &VaultError) -> &'static str {
         VaultError::UnsafeFileName(_) => "unsafe_file_name",
         VaultError::PathEscapesVault { .. } => "path_escapes_vault",
         VaultError::UnsafeFileType(_) => "unsafe_file_type",
+        VaultError::DocumentTooLarge { .. } => "note_document_too_large",
         VaultError::LockPoisoned => "vault_lock_poisoned",
         VaultError::Io { .. } => "io_error",
     }
@@ -53,8 +54,10 @@ fn error_code(error: &VaultError) -> &'static str {
 #[serde(rename_all = "camelCase")]
 pub struct NoteFile {
     pub file_name: String,
-    pub html: String,
+    pub html: Option<String>,
     pub content_hash: String,
+    pub size_bytes: u64,
+    pub max_bytes: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -159,7 +162,7 @@ mod tests {
         vault::VaultStore,
     };
 
-    use super::adopt_note_document;
+    use super::{adopt_note_document, NoteFile, VaultCommandError};
 
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
@@ -246,6 +249,28 @@ mod tests {
         assert_eq!(vault.read_note("manual.html").unwrap(), original);
         assert!(index.file_record("adopted-id").unwrap().is_none());
     }
+
+    #[test]
+    fn oversized_document_contract_uses_a_stable_code_and_null_html() {
+        let error = VaultCommandError::from(crate::vault::VaultError::DocumentTooLarge {
+            file_name: "grande.html".to_owned(),
+            actual_bytes: 30_000_000,
+            max_bytes: crate::vault::MAX_NOTE_DOCUMENT_BYTES,
+        });
+        assert_eq!(error.code, "note_document_too_large");
+
+        let json = serde_json::to_value(NoteFile {
+            file_name: "grande.html".to_owned(),
+            html: None,
+            content_hash: "oversized:30000000".to_owned(),
+            size_bytes: 30_000_000,
+            max_bytes: crate::vault::MAX_NOTE_DOCUMENT_BYTES,
+        })
+        .unwrap();
+        assert!(json["html"].is_null());
+        assert_eq!(json["sizeBytes"], 30_000_000);
+        assert_eq!(json["maxBytes"], crate::vault::MAX_NOTE_DOCUMENT_BYTES);
+    }
 }
 
 /// Nomes físicos dos documentos no vault, sem ler o conteúdo pesado. Usado
@@ -274,10 +299,12 @@ pub async fn read_all_note_files(
     let documents = state.vault.read_all_documents()?;
     Ok(documents
         .into_iter()
-        .map(|(file_name, html, content_hash)| NoteFile {
-            file_name,
-            html,
-            content_hash,
+        .map(|document| NoteFile {
+            file_name: document.file_name,
+            html: document.html,
+            content_hash: document.content_hash,
+            size_bytes: document.size_bytes,
+            max_bytes: MAX_NOTE_DOCUMENT_BYTES,
         })
         .collect())
 }

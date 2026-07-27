@@ -6,4 +6,4 @@
 
 mod note_file_store;
 
-pub use note_file_store::{VaultError, VaultStore};
+pub use note_file_store::{VaultDocument, VaultError, VaultStore, MAX_NOTE_DOCUMENT_BYTES};
