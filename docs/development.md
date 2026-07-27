@@ -40,6 +40,19 @@ npm run dev
 
 O modo web não executa o backend Rust, o SQLite nem as relações semânticas.
 
+## Arquitetura e segurança
+
+A persistência local é definida pelo
+[ADR 0006](adr/0006-html-per-note-persistence.md). Alterações no formato dos
+HTMLs, na identidade das notas, na reconciliação ou no SQLite devem preservar
+suas invariantes e atualizar o
+[modelo de ameaças do vault](security/vault-threat-model.md).
+
+O vault é a fonte de verdade dos documentos. O SQLite também guarda estado que
+não pode ser refeito apenas dos HTMLs, sobretudo o histórico de revisão; por
+isso a validação de recuperação deve incluir exportação e importação do backup
+JSON.
+
 ## Validar
 
 ```powershell

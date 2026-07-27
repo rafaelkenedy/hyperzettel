@@ -67,4 +67,6 @@ Desktop.ini
 
 # Relatórios de auditoria
 /audits/
-/docs/adr
+/docs/adr/*
+# O ADR 0006 virou contrato versionado da persistência; os demais seguem locais.
+!/docs/adr/0006-html-per-note-persistence.md

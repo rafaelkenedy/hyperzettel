@@ -1,6 +1,6 @@
-//! Índice derivado das notas em SQLite (ADR 0006): metadados, busca FTS5,
-//! conexões e estado de retenção. Reconstruível a partir do vault, que é a
-//! fonte da verdade. O frontend fornece os campos derivados (já parseia o HTML);
+//! Persistência operacional em SQLite (ADR 0006): metadados, busca FTS5,
+//! conexões e retenção. Os HTMLs são a fonte dos documentos; retenção não é
+//! derivável deles e exige backup. O frontend fornece os campos derivados (já parseia o HTML);
 //! este módulo apenas armazena e consulta.
 
 mod sqlite_note_index;

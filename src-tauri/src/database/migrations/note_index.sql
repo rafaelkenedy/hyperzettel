@@ -1,6 +1,6 @@
--- Índice derivado das notas. A fonte da verdade é o vault de
--- arquivos `.html`; estas tabelas são reconstruíveis a partir dele e existem
--- para listar/buscar sem ler o corpo pesado (com base64) de cada arquivo.
+-- Projeções derivadas das notas. A fonte dos documentos é o vault de arquivos
+-- `.html`; as tabelas de índice abaixo são reconstruíveis e existem para
+-- listar/buscar sem ler o corpo pesado (com base64) de cada arquivo.
 
 CREATE TABLE IF NOT EXISTS note_index (
     id TEXT PRIMARY KEY NOT NULL,
@@ -47,7 +47,8 @@ CREATE VIRTUAL TABLE IF NOT EXISTS note_search USING fts5(
     tokenize = 'unicode61 remove_diacritics 2'
 );
 
--- Estado de retenção (revisão espaçada), migrado do IndexedDB. Documento único.
+-- Estado de retenção (revisão espaçada), migrado do IndexedDB. Documento único
+-- e não derivável dos HTMLs; sua recuperação depende do backup JSON.
 CREATE TABLE IF NOT EXISTS note_retention (
     id INTEGER PRIMARY KEY CHECK(id = 1),
     state_json TEXT NOT NULL

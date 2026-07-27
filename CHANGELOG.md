@@ -34,7 +34,7 @@ segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 
 - **Persistência das notas como arquivos**: cada nota agora é um arquivo `.html` auto-contido num vault em disco (fonte da verdade), em vez de ficar no IndexedDB do webview (ADR 0006). Os arquivos são portáteis, versionáveis e abríveis em qualquer navegador.
 - As **imagens** passam a ser embutidas em base64 no próprio HTML da nota (auto-contido), em vez de um armazenamento separado.
-- O **SQLite nativo** vira o índice derivado obrigatório (metadados + busca FTS5 + conexões + retenção), reconstruível a partir do vault; a busca deixa de reparsear HTML a cada tecla.
+- O **SQLite nativo** vira o armazenamento operacional de metadados, busca FTS5, conexões e retenção. As projeções das notas são reconstruíveis a partir do vault; o histórico de revisão continua exigindo backup.
 - A **revisão espaçada** (painel Aprendizagem) só aparece quando a nota deixou de ser fugaz — revisar uma captura crua não fazia sentido no ciclo do Zettelkasten.
 
 ### Added

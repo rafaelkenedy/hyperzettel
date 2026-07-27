@@ -70,7 +70,7 @@ O runtime da aplicação não lê variáveis de ambiente. As variáveis encontra
 ```mermaid
 flowchart LR
     UI["Interface React"] -->|comandos Tauri| VAULT["Notas e imagens\nHTML auto-contido no vault"]
-    UI -->|comandos Tauri| INDEX["Metadados, busca e revisão\nSQLite derivado"]
+    UI -->|comandos Tauri| INDEX["Projeções e estado operacional\nSQLite local"]
     UI -->|comandos Tauri| SERVICE["Serviço Rust de relações"]
     SERVICE --> MODEL["EmbeddingGemma Q4\nFastEmbed + ONNX Runtime"]
     SERVICE --> INDEX
@@ -161,7 +161,12 @@ src-tauri/
   tests/           benchmark opt-in do modelo
 ```
 
-Detalhes de preparação, release e Git LFS estão em [docs/development.md](docs/development.md). A arquitetura do pipeline semântico está em [docs/relations-native.md](docs/relations-native.md).
+Detalhes de preparação, release e Git LFS estão em
+[docs/development.md](docs/development.md). A decisão de persistência está no
+[ADR 0006](docs/adr/0006-html-per-note-persistence.md), com seu
+[modelo de ameaças](docs/security/vault-threat-model.md). A arquitetura do
+pipeline semântico está em
+[docs/relations-native.md](docs/relations-native.md).
 
 ## Troubleshooting
 

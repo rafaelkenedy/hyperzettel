@@ -44,6 +44,12 @@ O hash do conteúdo evita inferência quando a nota e a versão do pipeline não
 mudaram. Editar uma nota invalida somente seu vetor. A substituição das
 sugestões automáticas não remove conexões manuais.
 
+Embeddings, relações automáticas e o checkpoint são reconstruíveis. Rejeições
+de sugestões representam uma decisão do usuário, não derivável do vault, e o
+backup JSON atual ainda não as exporta. Essa distinção e os critérios de
+recuperação estão no
+[ADR 0006](adr/0006-html-per-note-persistence.md).
+
 ## Limite offline
 
 O aplicativo instalado não busca modelo, tokenizer ou pesos na rede. Esses

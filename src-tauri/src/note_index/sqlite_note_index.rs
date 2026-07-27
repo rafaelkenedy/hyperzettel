@@ -33,8 +33,8 @@ pub struct NoteIndexRow {
     pub connections: Vec<IndexConnection>,
 }
 
-/// Índice derivado das notas em SQLite (metadados + FTS5 + conexões + retenção).
-/// A fonte da verdade continua sendo o vault; isto é reconstruível a partir dele.
+/// Persistência operacional em SQLite. Metadados, FTS5 e conexões são projeções
+/// dos HTMLs; retenção é estado do usuário e exige backup (ADR 0006).
 #[derive(Clone)]
 pub struct SqliteNoteIndex {
     database: Database,
