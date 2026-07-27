@@ -10,6 +10,7 @@ pub mod vault;
 #[path = "../model_resource_manifest.rs"]
 pub(crate) mod model_resource_manifest;
 
+use commands::backup::save_backup_file;
 use commands::notes::{
     delete_note, get_retention_state, list_notes, read_note, rebuild_note_index, save_note,
     search_notes, set_retention_state,
@@ -29,6 +30,7 @@ use tauri::Manager;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -50,6 +52,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            save_backup_file,
             sync_knowledge_notes,
             enqueue_note_indexing,
             get_related_notes,

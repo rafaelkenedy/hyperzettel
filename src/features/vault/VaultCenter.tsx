@@ -300,8 +300,8 @@ export function VaultCenter({
                 {backupStatus.state !== "empty" ? (
                   <p className="mt-1 text-[10px] leading-relaxed text-text-tertiary">
                     {backupStatus.state === "never"
-                      ? "Depois de exportar, mantenha o arquivo na pasta escolhida."
-                      : "A data registra que o download foi iniciado; confirme o arquivo na pasta escolhida."}
+                      ? "O app confirma a gravação e relê o arquivo antes de registrar a exportação."
+                      : "A data registra um arquivo gravado, sincronizado e verificado no destino escolhido."}
                   </p>
                 ) : null}
               </div>

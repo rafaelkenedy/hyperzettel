@@ -93,9 +93,12 @@ Security boundaries, abuse cases, and residual risks are maintained in the
 - **Backups remain necessary.** Deleting or corrupting SQLite does not lose note
   documents, but can lose retention history and rejected-relation decisions
   made after the most recent backup.
-- **Backup assistance is advisory.** The UI recommends the first export and a
-  new JSON export every seven days. Its local timestamp confirms that a download
-  was initiated, not that the resulting file remains durable or off-device.
+- **Backup assistance verifies the selected file.** The UI recommends the first
+  export and a new JSON export every seven days. Rust owns the native save
+  dialog, writes and synchronizes a temporary file, publishes it, then reopens
+  it to confirm byte length and SHA-256 before recording the local timestamp.
+  This proves the selected file existed at completion, not that it remains
+  durable or off-device afterwards.
 - **Atomic publication is not a full power-loss guarantee.** The implementation
   synchronizes the temporary file, revalidates the observed hash immediately
   before replacement and uses no-clobber `hard_link` publication for new names.

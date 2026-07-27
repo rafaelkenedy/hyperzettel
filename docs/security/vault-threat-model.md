@@ -67,7 +67,10 @@ os mesmos privilégios.
 - Cada documento HTML tem teto de 25 MiB. A interface rejeita uma nota gerada
   acima do limite antes do IPC; o backend repete a validação como autoridade.
 - Com notas no vault, a interface recomenda o primeiro backup e renova o
-  lembrete após sete dias. Apenas o timestamp da exportação iniciada fica no
+  lembrete após sete dias. O backend abre o seletor nativo — sem aceitar um
+  caminho arbitrário do WebView —, grava em temporário, sincroniza, publica e
+  relê o arquivo para confirmar tamanho e SHA-256. Cancelamento ou falha não
+  atualizam o lembrete. Apenas o timestamp da verificação concluída fica no
   `localStorage`; o conteúdo não é duplicado ali.
 
 ### IPC e identidade
@@ -126,7 +129,6 @@ sempre que a fronteira de persistência mudar.
 
 | Prioridade | Risco | Próximo controle recomendado |
 | --- | --- | --- |
-| Média | Download iniciado não garante que o arquivo permaneceu em local seguro | Considerar destino nativo configurável ou verificação explícita do arquivo numa evolução futura. |
 | Baixa | Falta de trilha forense | Só adicionar log local se surgir caso multiusuário ou requisito regulatório. |
 
 ## Critério para revisão

@@ -49,6 +49,17 @@ describe("política do lembrete de backup", () => {
 });
 
 describe("persistência do lembrete", () => {
+  test("não promove o antigo download iniciado a backup verificado", () => {
+    const oldTimestamp = "2026-07-25T12:00:00.000Z";
+    const storage = {
+      getItem: (key: string) =>
+        key === "hyperzettel.backup.lastExportedAt" ? oldTimestamp : null
+    };
+
+    expect(LAST_BACKUP_STORAGE_KEY).toBe("hyperzettel.backup.lastVerifiedAt");
+    expect(readLastBackupTimestamp(storage, NOW)).toBeNull();
+  });
+
   test("grava e lê a data da última exportação", () => {
     const values = new Map<string, string>();
     const storage = {

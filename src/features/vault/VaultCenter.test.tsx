@@ -101,6 +101,7 @@ describe("VaultCenter", () => {
     expect(
       screen.getByText(/preserva revisões e decisões semânticas/)
     ).toBeTruthy();
+    expect(screen.getByText(/relê o arquivo antes de registrar/)).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Exportar backup" }));
     expect(mocks.exportBackup).toHaveBeenCalledOnce();

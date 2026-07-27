@@ -21,13 +21,17 @@ import {
   importRejectedRelations
 } from "@/features/knowledge";
 import { vaultRepository } from "@/infrastructure/vaultRepository";
+import {
+  backupFileErrorMessage,
+  saveVerifiedBackup
+} from "@/infrastructure/backupFileRepository";
 import { useAnnouncer } from "@/app/providers/AnnouncerProvider";
 import { useKnowledge } from "@/app/providers/KnowledgeProvider";
 import { useNotes } from "@/app/providers/NotesProvider";
 
 export function useBackup() {
   const { announce } = useAnnouncer();
-  const { savedNotes, persistDraft, reload, adoptImported } = useNotes();
+  const { savedNotes, dirty, persistDraft, reload, adoptImported } = useNotes();
   const { exportState, mergeImported } = useKnowledge();
   const [exporting, setExporting] = useState(false);
   const [clock, setClock] = useState(Date.now);
@@ -80,16 +84,20 @@ export function useBackup() {
   const exportNotes = useCallback(async () => {
     setExporting(true);
     try {
-      await persistDraft();
+      const hadPendingDraft = dirty;
+      const persisted = await persistDraft();
+      if (hadPendingDraft && !persisted) {
+        announce(
+          "O rascunho atual não pôde ser salvo. Resolva o conflito antes de criar um backup."
+        );
+        return;
+      }
       const result = await service.exportBackup();
-      const url = URL.createObjectURL(result.blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = result.fileName;
-      document.body.append(link);
-      link.click();
-      link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      const receipt = await saveVerifiedBackup(result.fileName, result.contents);
+      if (!receipt) {
+        announce("Exportação cancelada; o lembrete de backup continua ativo.");
+        return;
+      }
       if (result.noteCount > 0) {
         const now = Date.now();
         let timestamp: string;
@@ -103,7 +111,8 @@ export function useBackup() {
         window.dispatchEvent(new Event(BACKUP_RECORDED_EVENT));
       }
       announce(
-        `${result.noteCount} ${result.noteCount === 1 ? "nota exportada" : "notas exportadas"}; ` +
+        `Backup verificado em “${receipt.fileName}”: ` +
+          `${result.noteCount} ${result.noteCount === 1 ? "nota exportada" : "notas exportadas"}; ` +
           `${result.rejectedRelationCount} ${
             result.rejectedRelationCount === 1
               ? "decisão semântica incluída"
@@ -112,11 +121,11 @@ export function useBackup() {
       );
     } catch (error) {
       console.error(error);
-      announce("Não foi possível exportar as notas.");
+      announce(backupFileErrorMessage(error));
     } finally {
       setExporting(false);
     }
-  }, [announce, persistDraft, service]);
+  }, [announce, dirty, persistDraft, service]);
 
   const importNotes = useCallback(
     async (file: File) => {

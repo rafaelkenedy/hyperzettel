@@ -1,8 +1,10 @@
 const DAY = 24 * 60 * 60 * 1000;
 
 export const BACKUP_INTERVAL_DAYS = 7;
-export const BACKUP_RECORDED_EVENT = "hyperzettel:backup-recorded";
-export const LAST_BACKUP_STORAGE_KEY = "hyperzettel.backup.lastExportedAt";
+export const BACKUP_RECORDED_EVENT = "hyperzettel:backup-verified";
+// Chave nova de propósito: timestamps antigos registravam apenas o início de
+// um download e não podem ser promovidos retroativamente a backup verificado.
+export const LAST_BACKUP_STORAGE_KEY = "hyperzettel.backup.lastVerifiedAt";
 
 export type BackupStatus =
   | { state: "empty"; lastExportedAt: null; ageDays: null }

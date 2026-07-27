@@ -291,7 +291,7 @@ describe("exportação", () => {
 
     await service.importBackup(backupFile({ notes: [{ id: "a", title: "Uma" }] }));
     const result = await service.exportBackup();
-    const parsed = JSON.parse(await result.blob.text());
+    const parsed = JSON.parse(result.contents);
 
     expect(parsed.format).toBe("hyperzettelkasten");
     expect(parsed.version).toBe(3);
@@ -309,7 +309,7 @@ describe("exportação", () => {
     const exported = await service.exportBackup();
     const { service: other, importedRejections } = createService();
     const imported = await other.importBackup(
-      new File([await exported.blob.text()], "backup.json", { type: "application/json" })
+      new File([exported.contents], "backup.json", { type: "application/json" })
     );
 
     expect(exported.rejectedRelationCount).toBe(1);
@@ -337,7 +337,7 @@ describe("exportação", () => {
     const exported = await service.exportBackup();
     const { service: outro } = createService();
     const reimported = await outro.importBackup(
-      new File([await exported.blob.text()], "backup.json", { type: "application/json" })
+      new File([exported.contents], "backup.json", { type: "application/json" })
     );
 
     const note = reimported!.notes[0]!;

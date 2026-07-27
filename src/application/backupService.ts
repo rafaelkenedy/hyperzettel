@@ -145,7 +145,7 @@ function parseRejectedRelations(
 export interface ExportResult {
   noteCount: number;
   rejectedRelationCount: number;
-  blob: Blob;
+  contents: string;
   fileName: string;
 }
 
@@ -195,10 +195,11 @@ export function createBackupService({
       rejectedRelations
     };
 
+    const contents = JSON.stringify(backup, null, 2);
     return {
       noteCount: notes.length,
       rejectedRelationCount: rejectedRelations.length,
-      blob: new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" }),
+      contents,
       fileName: `hyperzettel-notas-${new Date().toISOString().slice(0, 10)}.json`
     };
   }
