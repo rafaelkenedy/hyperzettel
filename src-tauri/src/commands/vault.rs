@@ -3,6 +3,7 @@ use std::process::Command;
 use serde::Serialize;
 
 use crate::{
+    commands::notes::document_declares_id,
     database::DatabaseError,
     note_index::{NoteIndexRow, SqliteNoteIndex},
     state::AppState,
@@ -115,6 +116,12 @@ fn adopt_note_document(
     expected_hash: &str,
     html: &str,
 ) -> Result<(), VaultCommandError> {
+    if !document_declares_id(html, &row.id) {
+        return Err(VaultCommandError {
+            code: "vault_identity_mismatch".to_owned(),
+            message: format!("the note document does not declare hz:id '{}'", row.id),
+        });
+    }
     if note_index.file_record(&row.id)?.is_some() {
         return Err(VaultCommandError {
             code: "adopt_id_exists".to_owned(),
@@ -215,6 +222,27 @@ mod tests {
         .unwrap_err();
 
         assert_eq!(error.code, "vault_content_changed");
+        assert_eq!(vault.read_note("manual.html").unwrap(), original);
+        assert!(index.file_record("adopted-id").unwrap().is_none());
+    }
+
+    #[test]
+    fn adoption_rejects_identity_mismatch_without_overwriting_the_file() {
+        let (vault, index) = fixture();
+        let original = "<html><body>original</body></html>";
+        vault.write_note("manual.html", original).unwrap();
+        let expected_hash = vault.note_hash("manual.html").unwrap();
+
+        let error = adopt_note_document(
+            &vault,
+            &index,
+            row(),
+            &expected_hash,
+            r#"<meta name="hz:id" content="another-id">"#,
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, "vault_identity_mismatch");
         assert_eq!(vault.read_note("manual.html").unwrap(), original);
         assert!(index.file_record("adopted-id").unwrap().is_none());
     }

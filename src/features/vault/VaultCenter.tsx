@@ -54,6 +54,7 @@ export function VaultCenter({
   const [inspection, setInspection] = useState<VaultInspection | null>(null);
   const [busy, setBusy] = useState(false);
   const [adopting, setAdopting] = useState<string | null>(null);
+  const [resolving, setResolving] = useState<string | null>(null);
   const [feedback, setFeedback] = useState("");
 
   const refresh = useCallback(async () => {
@@ -129,6 +130,41 @@ export function VaultCenter({
       announce(message);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const resolveDuplicate = async (
+    issue: VaultIntegrityIssue,
+    keeperFileName: string
+  ) => {
+    if (!issue.id) return;
+    const operation = `${issue.id}:${keeperFileName}`;
+    setResolving(operation);
+    setFeedback("");
+    try {
+      const result = await vaultRepository.resolveDuplicateId(
+        issue.id,
+        keeperFileName
+      );
+      result.separated.forEach((note) => enqueueNoteIndexing(note));
+      await notes.reload();
+      await refresh();
+      const count = result.separated.length;
+      const message =
+        `“${keeperFileName}” manteve a identidade original; ` +
+        `${count} ${count === 1 ? "cópia recebeu" : "cópias receberam"} nova identidade.`;
+      setFeedback(message);
+      announce(message);
+    } catch (error) {
+      console.error(error);
+      const message = vaultErrorMessage(
+        error,
+        "Não foi possível separar as cópias."
+      );
+      setFeedback(message);
+      announce(message);
+    } finally {
+      setResolving(null);
     }
   };
 
@@ -301,8 +337,9 @@ export function VaultCenter({
             <section className="mt-5">
               <h3 className="text-[13px] font-semibold">Identidades duplicadas</h3>
               <p className="mt-0.5 text-2xs leading-relaxed text-text-secondary">
-                Abra a pasta e mantenha apenas um arquivo com cada `hz:id`. A resolução assistida
-                de duplicatas será adicionada no próximo incremento.
+                Escolha qual arquivo continuará representando a identidade original. As outras
+                cópias serão preservadas, mas receberão novos IDs; conexões existentes continuarão
+                apontando para o arquivo escolhido.
               </p>
               <div className="mt-2 flex flex-col gap-2">
                 {duplicateIds.map((issue) => (
@@ -311,9 +348,37 @@ export function VaultCenter({
                     className="rounded-lg border border-border-primary px-3 py-2.5"
                   >
                     <p className="text-xs font-medium">ID: {issue.id}</p>
-                    <p className="mt-1 break-all text-2xs leading-relaxed text-text-secondary">
-                      {issue.fileNames.join(" · ")}
-                    </p>
+                    <div className="mt-2 flex flex-col gap-1.5">
+                      {issue.fileNames.map((fileName) => {
+                        const operation = `${issue.id}:${fileName}`;
+                        return (
+                          <div
+                            key={fileName}
+                            className="flex items-center gap-2 rounded-md bg-background-secondary px-2.5 py-2"
+                          >
+                            <p
+                              className="min-w-0 flex-1 truncate text-2xs text-text-secondary"
+                              title={fileName}
+                            >
+                              {fileName}
+                            </p>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              className="h-7 shrink-0 border-border-tertiary bg-background-primary px-2 text-2xs"
+                              aria-label={`Manter o ID em ${fileName}`}
+                              onClick={() => void resolveDuplicate(issue, fileName)}
+                              disabled={Boolean(resolving) || busy || Boolean(adopting)}
+                            >
+                              {resolving === operation ? (
+                                <LoaderCircle className="mr-1.5 size-3 animate-spin" />
+                              ) : null}
+                              Manter este ID
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 ))}
               </div>

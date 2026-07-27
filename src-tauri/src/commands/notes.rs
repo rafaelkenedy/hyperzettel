@@ -57,6 +57,12 @@ pub async fn save_note(
     mut row: NoteIndexRow,
     html: String,
 ) -> Result<(), NoteCommandError> {
+    if !document_declares_id(&html, &row.id) {
+        return Err(integrity_error(
+            "vault_identity_mismatch",
+            &format!("the note document does not declare hz:id '{}'", row.id),
+        ));
+    }
     let existing = state.note_index.file_record(&row.id)?;
     let is_existing = existing.is_some();
     row.file_name = match existing {
@@ -173,7 +179,7 @@ fn hash_html(html: &str) -> String {
     hex::encode(Sha256::digest(html.as_bytes()))
 }
 
-fn document_declares_id(html: &str, id: &str) -> bool {
+pub(crate) fn document_declares_id(html: &str, id: &str) -> bool {
     let escaped = id
         .replace('&', "&amp;")
         .replace('"', "&quot;")
@@ -245,6 +251,18 @@ mod tests {
         );
         assert_eq!(vault.list_note_files().unwrap(), vec![preferred.to_owned()]);
         assert_eq!(vault.read_note(preferred).unwrap(), retry);
+    }
+
+    #[test]
+    fn identity_check_rejects_a_row_that_disagrees_with_the_document() {
+        assert!(document_declares_id(
+            r#"<meta name="hz:id" content="expected-id">"#,
+            "expected-id"
+        ));
+        assert!(!document_declares_id(
+            r#"<meta name="hz:id" content="another-id">"#,
+            "expected-id"
+        ));
     }
 }
 

@@ -93,7 +93,10 @@ Arquivos criados manualmente podem usar qualquer nome simples terminado em
 `.html` (inclusive `.HTML`). Na inicialização, o aplicativo compara nome e
 SHA-256 com o índice: edições, renomes, inclusões e remoções externas provocam
 reindexação. Arquivos sem `hz:id` ou com um ID duplicado são informados e não
-entram no índice até serem corrigidos.
+entram no índice até serem corrigidos. Na Central do Vault, arquivos sem
+identidade podem ser adotados e grupos duplicados podem ser separados sem
+excluir conteúdo: um arquivo conserva o ID original e as demais cópias recebem
+novas identidades.
 
 Na aplicação Tauri, o frontend sincroniza as notas salvas com um serviço Rust. O serviço valida e carrega o EmbeddingGemma Q4 empacotado, gera embeddings localmente e grava o resultado em `hyperzettel.sqlite`. A configuração atual considera similaridade mínima de `0,68` e mantém até cinco relações automáticas por nota. A interface permite rejeitar, restaurar, pausar, continuar ou tentar novamente essa análise.
 

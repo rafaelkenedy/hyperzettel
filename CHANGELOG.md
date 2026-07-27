@@ -24,6 +24,7 @@ segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 
 - Uma captura promovida para nota permanente continua no fluxo até os passos de conexão e conclusão, em vez de desaparecer ao sair da caixa de entrada.
 - O seletor de conexões abre dentro do processamento e persiste o motivo informado sem desmontar a tela atual.
+- A Central do Vault permite resolver IDs duplicados escolhendo qual arquivo preserva a identidade original; as demais cópias recebem IDs novos sem perder conteúdo.
 
 ## [0.8.0] - 2026-07-24
 

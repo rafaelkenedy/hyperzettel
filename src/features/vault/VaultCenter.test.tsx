@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   getInfo: vi.fn(),
   inspectVault: vi.fn(),
   adoptDocument: vi.fn(),
+  resolveDuplicateId: vi.fn(),
   reindexFromVault: vi.fn(),
   openFolder: vi.fn()
 }));
@@ -37,6 +38,7 @@ vi.mock("@/infrastructure/vaultRepository", () => ({
     getInfo: mocks.getInfo,
     inspectVault: mocks.inspectVault,
     adoptDocument: mocks.adoptDocument,
+    resolveDuplicateId: mocks.resolveDuplicateId,
     reindexFromVault: mocks.reindexFromVault,
     openFolder: mocks.openFolder
   }
@@ -88,5 +90,51 @@ describe("VaultCenter", () => {
     expect(mocks.enqueue).toHaveBeenCalledWith(adopted);
     expect(mocks.reload).toHaveBeenCalledOnce();
     expect(mocks.inspectVault).toHaveBeenCalledTimes(2);
+  });
+
+  test("separa cópias preservando o arquivo escolhido e recarrega a coleção", async () => {
+    const separated = createNoteRecord({
+      id: "new-copy-id",
+      title: "Cópia separada",
+      status: "saved"
+    });
+    mocks.inspectVault.mockResolvedValue({
+      indexed: 0,
+      rows: [],
+      issues: [
+        {
+          code: "duplicate_id",
+          id: "duplicated-id",
+          fileNames: ["principal.html", "copia.html"]
+        }
+      ]
+    });
+    mocks.resolveDuplicateId.mockResolvedValue({
+      keeperFileName: "principal.html",
+      separated: [separated]
+    });
+
+    render(<VaultCenter open onOpenChange={vi.fn()} />);
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Manter o ID em principal.html"
+      })
+    );
+
+    await waitFor(() =>
+      expect(mocks.resolveDuplicateId).toHaveBeenCalledWith(
+        "duplicated-id",
+        "principal.html"
+      )
+    );
+    expect(mocks.enqueue).toHaveBeenCalledWith(separated);
+    expect(mocks.reload).toHaveBeenCalledOnce();
+    expect(mocks.inspectVault).toHaveBeenCalledTimes(2);
+    expect(
+      screen.getByText(
+        "“principal.html” manteve a identidade original; 1 cópia recebeu nova identidade."
+      )
+    ).toBeTruthy();
   });
 });

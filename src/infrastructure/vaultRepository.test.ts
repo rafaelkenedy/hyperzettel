@@ -9,7 +9,10 @@ import {
   inspectVaultDocuments,
   toIndexRow
 } from "@/infrastructure/vaultRepository";
-import { serializeNoteToHtmlDocument } from "@/shared/noteDocument";
+import {
+  parseHtmlDocumentToNote,
+  serializeNoteToHtmlDocument
+} from "@/shared/noteDocument";
 
 const invokeMock = vi.hoisted(() => vi.fn());
 
@@ -232,6 +235,114 @@ describe("toIndexRow", () => {
       ]
     });
     expect(invokeMock).toHaveBeenCalledWith("rebuild_note_index", { rows: [] });
+  });
+
+  test("separa cópias por CAS e preserva o id no arquivo escolhido", async () => {
+    const principal = createNoteRecord({
+      id: "duplicated-id",
+      title: "Principal",
+      status: "saved"
+    });
+    const copy = createNoteRecord({
+      ...principal,
+      title: "Cópia divergente"
+    });
+    let documents = [
+      {
+        fileName: "principal.html",
+        html: serializeNoteToHtmlDocument(principal),
+        contentHash: "hash-principal"
+      },
+      {
+        fileName: "copia.html",
+        html: serializeNoteToHtmlDocument(copy),
+        contentHash: "hash-copy"
+      }
+    ];
+    const rebuilds: unknown[] = [];
+    const { vaultRepository } = await import("@/infrastructure/vaultRepository");
+
+    invokeMock.mockImplementation(
+      (
+        command: string,
+        args?: {
+          row?: { id: string; fileName: string };
+          expectedHash?: string;
+          html?: string;
+          rows?: unknown[];
+        }
+      ) => {
+        if (command === "read_all_note_files") {
+          return Promise.resolve(documents);
+        }
+        if (command === "rebuild_note_index") {
+          rebuilds.push(args?.rows ?? []);
+          return Promise.resolve();
+        }
+        if (command === "adopt_note_file") {
+          expect(args?.row?.fileName).toBe("copia.html");
+          expect(args?.expectedHash).toBe("hash-copy");
+          documents = documents.map((document) =>
+            document.fileName === "copia.html"
+              ? {
+                  ...document,
+                  html: args?.html ?? "",
+                  contentHash: "hash-copy-rewritten"
+                }
+              : document
+          );
+          return Promise.resolve();
+        }
+        return Promise.reject(new Error(`comando inesperado: ${command}`));
+      }
+    );
+
+    const result = await vaultRepository.resolveDuplicateId(
+      "duplicated-id",
+      "principal.html"
+    );
+
+    expect(result.keeperFileName).toBe("principal.html");
+    expect(result.separated).toHaveLength(1);
+    expect(result.separated[0]).toMatchObject({
+      title: "Cópia divergente",
+      status: "saved"
+    });
+    expect(result.separated[0]!.id).not.toBe("duplicated-id");
+    expect(
+      parseHtmlDocumentToNote(
+        documents.find((document) => document.fileName === "principal.html")!.html
+      )!.id
+    ).toBe("duplicated-id");
+    expect(
+      parseHtmlDocumentToNote(
+        documents.find((document) => document.fileName === "copia.html")!.html
+      )!.id
+    ).toBe(result.separated[0]!.id);
+    expect(rebuilds).toHaveLength(2);
+    expect(rebuilds[0]).toEqual([]);
+    expect(rebuilds[1]).toEqual([
+      expect.objectContaining({ id: "duplicated-id", fileName: "principal.html" }),
+      expect.objectContaining({ id: result.separated[0]!.id, fileName: "copia.html" })
+    ]);
+  });
+
+  test("interrompe a separação quando o grupo mudou após a verificação", async () => {
+    const unique = createNoteRecord({ id: "unique-id", title: "Única" });
+    const { vaultRepository } = await import("@/infrastructure/vaultRepository");
+
+    invokeMock.mockResolvedValue([
+      {
+        fileName: "unica.html",
+        html: serializeNoteToHtmlDocument(unique),
+        contentHash: "hash-unique"
+      }
+    ]);
+
+    await expect(
+      vaultRepository.resolveDuplicateId("duplicated-id", "unica.html")
+    ).rejects.toMatchObject({ code: "duplicate_resolution_stale" });
+    expect(invokeMock).toHaveBeenCalledTimes(1);
   });
 
   test("reporta arquivo sem hz:id em vez de descartá-lo silenciosamente", async () => {

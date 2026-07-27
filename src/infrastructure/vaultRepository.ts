@@ -18,7 +18,7 @@ import {
   parseHtmlDocumentToNote,
   serializeNoteToHtmlDocument
 } from "@/shared/noteDocument";
-import type { Connection, Note } from "@/domain/notes";
+import { createId, createNoteRecord, type Connection, type Note } from "@/domain/notes";
 
 /** Linha leve do índice (metadados + texto puro + conexões), sem o HTML pesado. */
 export interface NoteIndexRow {
@@ -68,6 +68,11 @@ export interface VaultInfo {
 
 export interface VaultInspection extends ReindexReport {
   rows: NoteIndexRow[];
+}
+
+export interface DuplicateResolution {
+  keeperFileName: string;
+  separated: Note[];
 }
 
 /**
@@ -260,6 +265,81 @@ async function adoptDocument(fileName: string): Promise<Note> {
 }
 
 /**
+ * Separa um grupo de arquivos que declara o mesmo `hz:id`.
+ *
+ * O arquivo escolhido conserva a identidade antiga — e, portanto, todas as
+ * conexões que apontam para ela. As outras cópias permanecem no lugar e
+ * recebem novos ids. Cada regravação usa o hash inspecionado como CAS; se
+ * qualquer arquivo mudar durante a operação, o backend interrompe sem
+ * sobrescrever aquela versão.
+ */
+async function resolveDuplicateId(
+  id: string,
+  keeperFileName: string
+): Promise<DuplicateResolution> {
+  const documents = await readAllDocuments();
+  const inspection = inspectVaultDocuments(documents);
+  const issue = inspection.issues.find(
+    (item) => item.code === "duplicate_id" && item.id === id
+  );
+
+  if (!issue || !issue.fileNames.includes(keeperFileName)) {
+    throw {
+      code: "duplicate_resolution_stale",
+      message: "O grupo duplicado mudou desde a última verificação."
+    };
+  }
+
+  const duplicates = documents.flatMap((document) => {
+    const note = parseHtmlDocumentToNote(document.html);
+    return note?.id === id ? [{ document, note }] : [];
+  });
+  if (duplicates.length < 2) {
+    throw {
+      code: "duplicate_resolution_stale",
+      message: "A identidade não está mais duplicada."
+    };
+  }
+
+  /*
+   * Primeiro isola todo o grupo do índice. Isso também permite resolver uma
+   * duplicata criada enquanto o app estava aberto, quando um dos nomes ainda
+   * poderia estar associado ao id antigo.
+   */
+  await rebuildIndex(inspection.rows);
+
+  const separated: Note[] = [];
+  for (const { document, note } of duplicates) {
+    if (document.fileName === keeperFileName) continue;
+    const rewritten = createNoteRecord({
+      ...note,
+      id: createId(),
+      updatedAt: new Date().toISOString()
+    });
+    await invoke("adopt_note_file", {
+      row: toIndexRow(rewritten, document.fileName),
+      expectedHash: document.contentHash,
+      html: serializeNoteToHtmlDocument(rewritten)
+    });
+    separated.push(rewritten);
+  }
+
+  const report = await reindexFromVault();
+  if (
+    report.issues.some(
+      (item) => item.code === "duplicate_id" && item.id === id
+    )
+  ) {
+    throw {
+      code: "duplicate_resolution_incomplete",
+      message: "Ainda existem arquivos com a identidade duplicada."
+    };
+  }
+
+  return { keeperFileName, separated };
+}
+
+/**
  * Reconstrói o índice somente quando sua visão dos arquivos diverge do vault.
  * A comparação por nome + SHA-256 detecta notas criadas, removidas, renomeadas
  * ou editadas fora do app e repara índices antigos sem fingerprints.
@@ -323,6 +403,10 @@ export function vaultErrorMessage(error: unknown, fallback: string): string {
     case "adopt_file_indexed":
     case "adopt_not_available":
       return "O arquivo não pode mais ser adotado nesse estado. Verifique o vault novamente.";
+    case "duplicate_resolution_stale":
+      return "Os arquivos mudaram desde a verificação. Verifique o vault novamente antes de separar as cópias.";
+    case "duplicate_resolution_incomplete":
+      return "Nem todas as cópias puderam ser separadas. Verifique o vault e tente novamente.";
     default:
       return fallback;
   }
@@ -351,6 +435,7 @@ export const vaultRepository = {
   openFolder,
   inspectVault,
   adoptDocument,
+  resolveDuplicateId,
   rebuildIndex,
   reindexFromVault,
   reconcileIndexWithVault,
