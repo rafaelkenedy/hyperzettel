@@ -42,7 +42,11 @@ import {
 import { formatRelative, toPlainText } from "@/shared/html";
 import { formatShortcut } from "@/shared/platform";
 import { GuidedStart } from "@/features/onboarding";
-import { firstCycleProgressFor } from "@/features/onboarding/guidedOnboarding";
+import {
+  FIRST_CYCLE_IDEA_TARGET,
+  firstCycleProgressFor
+} from "@/features/onboarding/guidedOnboarding";
+import { selectDashboardFocus } from "./dashboardFocus";
 
 const TEMPLATE_ICONS: Record<TemplateId, LucideIcon> = {
   blank: FileText,
@@ -166,13 +170,18 @@ export function Dashboard() {
   // vazio só reforçam o vazio. Nesse estado a home lidera com a ação de criar.
   const hasNotes = notes.notes.length > 0;
   const firstCycle = firstCycleProgressFor(notes.notes, notes.draft.id);
+  const focusKind = selectDashboardFocus({
+    firstCycleStage: firstCycle?.stage,
+    reviewDue,
+    inboxCount
+  });
 
   /**
-   * O cartão de foco responde ao estado real: revisar vem antes de organizar,
-   * que vem antes de escrever. Sem isso a home dizia a mesma coisa todo dia.
+   * O cartão de foco responde ao estado real. O primeiro ciclo lidera enquanto
+   * incompleto; depois, revisão e entrada voltam a preceder a celebração.
    */
   const focus =
-    firstCycle?.stage === "capture"
+    focusKind === "capture"
       ? {
           eyebrow: "Primeiro ciclo",
           title: "Seu mapa precisa da primeira ideia",
@@ -182,7 +191,7 @@ export function Dashboard() {
           tone: "bg-[#e9eefb] text-[#2f5aa8]",
           icon: ListTree
         }
-      : firstCycle?.stage === "write"
+      : focusKind === "write"
         ? {
             eyebrow: "Primeiro ciclo",
             title: "Termine sua primeira captura",
@@ -192,7 +201,7 @@ export function Dashboard() {
             tone: "bg-[#e9eefb] text-[#2f5aa8]",
             icon: PenLine
           }
-        : firstCycle?.stage === "process"
+        : focusKind === "process"
           ? {
               eyebrow: "Primeiro ciclo",
               title: "Transforme a captura em conhecimento",
@@ -205,30 +214,34 @@ export function Dashboard() {
               tone: "bg-[#fdf1dd] text-[#8a5a12]",
               icon: Inbox
             }
-          : firstCycle?.stage === "connect"
+          : focusKind === "connect"
             ? {
                 eyebrow: "Primeiro ciclo",
-                title: `Falta explicar a conexão ${firstCycle.connectedCount + 1} de ${firstCycle.targetCount}`,
+                title:
+                  `Falta explicar a conexão ${(firstCycle?.connectedCount ?? 0) + 1} de ` +
+                  `${firstCycle?.targetCount ?? FIRST_CYCLE_IDEA_TARGET}`,
                 body: "Abra a nota permanente, conecte-a ao mapa inicial e registre por que as duas ideias se relacionam.",
                 action: "Abrir nota permanente",
                 run: () =>
-                  firstCycle.captureId
+                  firstCycle?.captureId
                     ? void notes.openNote(firstCycle.captureId)
                     : navigation.setView("note"),
                 tone: "bg-[#efecfd] text-[#6a4fd0]",
                 icon: Link2
               }
-            : firstCycle?.stage === "expand"
+            : focusKind === "expand"
               ? {
                   eyebrow: "Primeiro ciclo",
-                  title: `${firstCycle.connectedCount} de ${firstCycle.targetCount} ideias conectadas`,
+                  title:
+                    `${firstCycle?.connectedCount ?? 0} de ` +
+                    `${firstCycle?.targetCount ?? FIRST_CYCLE_IDEA_TARGET} ideias conectadas`,
                   body: "Crie outra captura pequena e repita o processamento. Três ideias bastam para enxergar um conjunto, não apenas notas isoladas.",
                   action: "Criar próxima captura",
                   run: () => void notes.newNote(),
                   tone: "bg-[#e9eefb] text-[#2f5aa8]",
                   icon: ListTree
                 }
-              : firstCycle?.stage === "complete"
+              : focusKind === "complete"
               ? {
                   eyebrow: "Primeiro ciclo concluído",
                   title: "Você já tem uma linha de pensamento",
@@ -238,7 +251,7 @@ export function Dashboard() {
                   tone: "bg-[#e8f4ec] text-[#1c6b45]",
                   icon: Link2
                 }
-              : reviewDue
+              : focusKind === "review"
                 ? {
         eyebrow: "Sua memória pede atenção",
         title: `${reviewDue} ${reviewDue === 1 ? "nota está esfriando" : "notas estão esfriando"}`,
@@ -248,7 +261,7 @@ export function Dashboard() {
         tone: "bg-[#fdeef1] text-[#a3324c]",
         icon: Brain
                   }
-                : inboxCount
+                : focusKind === "inbox"
                   ? {
           eyebrow: "Caixa de entrada",
           title: `${inboxCount} ${inboxCount === 1 ? "nota esperando destino" : "notas esperando destino"}`,
