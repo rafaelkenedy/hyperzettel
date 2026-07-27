@@ -30,6 +30,7 @@ export interface NoteIndexRow {
   template: string;
   status: string;
   plainText: string;
+  recallPrompt: string;
   contentHash: string;
   createdAt: string;
   updatedAt: string;
@@ -88,6 +89,7 @@ export function toIndexRow(
     template: note.template,
     status: note.status,
     plainText: toPlainText(note.content),
+    recallPrompt: note.recallPrompt,
     contentHash,
     createdAt: note.createdAt,
     updatedAt: note.updatedAt,

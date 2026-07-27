@@ -377,11 +377,7 @@ export function PropertiesPanel({ onClose }: { onClose?: () => void } = {}) {
 
         <CollapsibleSection icon={Brain} label="Aprendizagem">
           <div className="px-4 pt-1">
-            {!knowledge.activeRetention ? (
-              <p className="py-1 text-xs text-text-secondary">
-                Conclua a nota para acompanhar a retenção.
-              </p>
-            ) : notes.draft.kind === "fleeting" ? (
+            {notes.draft.kind === "fleeting" ? (
               // Nota fugaz ainda não foi destilada; revisar só faz sentido depois
               // que ela vira permanente. Evita oferecer uma ação fora do estágio.
               <p className="py-1 text-xs text-text-secondary">
@@ -390,32 +386,63 @@ export function PropertiesPanel({ onClose }: { onClose?: () => void } = {}) {
               </p>
             ) : (
               <>
-                {knowledge.activeRetention.reviewCount ? (
-                  <div className="flex items-center gap-2">
-                    <span className={cn("rounded px-1.5 py-0.5 text-2xs font-semibold tabular-nums", LEVEL_TONE[knowledge.activeRetention.level])}>
-                      {Math.round(knowledge.activeRetention.strength * 100)}%
-                    </span>
-                    <span className="text-xs text-text-tertiary">
-                      {knowledge.activeRetention.reviewCount}{" "}
-                      {knowledge.activeRetention.reviewCount === 1 ? "revisão" : "revisões"} ·{" "}
-                      {dueLabel(knowledge.activeRetention.dueAt).replace(/\.$/, "")}
-                    </span>
-                  </div>
-                ) : (
-                  <p className="text-xs text-text-tertiary">Nunca revisada.</p>
-                )}
-                <p className="mt-2 text-2xs leading-relaxed text-text-secondary">
-                  A avaliação aparece somente depois que você tenta lembrar e revela a
-                  nota.
-                </p>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="mt-2 h-8 border-border-primary bg-background-secondary px-2.5 text-xs focus-visible:ring-2 focus-visible:ring-hz-accent"
-                  onClick={() => navigation.toggleMap("review")}
+                <label
+                  htmlFor="recall-prompt"
+                  className="text-2xs font-semibold uppercase tracking-[0.06em] text-text-secondary"
                 >
-                  Abrir revisão sem olhar
-                </Button>
+                  Pergunta de recuperação
+                </label>
+                <textarea
+                  id="recall-prompt"
+                  value={notes.draft.recallPrompt}
+                  maxLength={300}
+                  rows={3}
+                  placeholder={
+                    notes.draft.title
+                      ? `O que você consegue explicar sobre “${notes.draft.title}”?`
+                      : "Que pergunta deve ser respondida sem consultar a nota?"
+                  }
+                  onChange={(event) => notes.setRecallPrompt(event.target.value)}
+                  className="mt-1 w-full resize-y rounded-md border border-border-primary bg-background-secondary px-2.5 py-2 text-xs leading-relaxed text-text-primary outline-none placeholder:text-text-secondary focus:border-hz-accent focus:ring-1 focus:ring-hz-accent"
+                />
+                <p className="mt-1 text-2xs leading-relaxed text-text-secondary">
+                  Opcional. Se ficar vazia, o título será usado como pista.
+                </p>
+
+                {!knowledge.activeRetention ? (
+                  <p className="mt-2 text-xs text-text-secondary">
+                    Conclua a nota para acompanhar a retenção.
+                  </p>
+                ) : (
+                  <>
+                    {knowledge.activeRetention.reviewCount ? (
+                      <div className="mt-2 flex items-center gap-2">
+                        <span className={cn("rounded px-1.5 py-0.5 text-2xs font-semibold tabular-nums", LEVEL_TONE[knowledge.activeRetention.level])}>
+                          {Math.round(knowledge.activeRetention.strength * 100)}%
+                        </span>
+                        <span className="text-xs text-text-tertiary">
+                          {knowledge.activeRetention.reviewCount}{" "}
+                          {knowledge.activeRetention.reviewCount === 1 ? "revisão" : "revisões"} ·{" "}
+                          {dueLabel(knowledge.activeRetention.dueAt).replace(/\.$/, "")}
+                        </span>
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-xs text-text-tertiary">Nunca revisada.</p>
+                    )}
+                    <p className="mt-2 text-2xs leading-relaxed text-text-secondary">
+                      A avaliação aparece somente depois que você tenta lembrar e revela a
+                      nota.
+                    </p>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="mt-2 h-8 border-border-primary bg-background-secondary px-2.5 text-xs focus-visible:ring-2 focus-visible:ring-hz-accent"
+                      onClick={() => navigation.toggleMap("review")}
+                    >
+                      Abrir revisão sem olhar
+                    </Button>
+                  </>
+                )}
               </>
             )}
           </div>

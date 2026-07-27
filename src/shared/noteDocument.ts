@@ -74,6 +74,7 @@ function renderMetaTags(note: Note): string {
     metaTag("kind", note.kind),
     metaTag("template", note.template),
     metaTag("status", note.status),
+    ...(note.recallPrompt ? [metaTag("recallPrompt", note.recallPrompt)] : []),
     metaTag("createdAt", note.createdAt),
     metaTag("updatedAt", note.updatedAt),
     ...connections.map((connection) => metaTag("connection", `${connection.id}|${connection.reason}`))
@@ -163,6 +164,7 @@ export function parseHtmlDocumentToNote(html: string): Note | null {
     id,
     title: readTitle(doc),
     content: sanitizeNoteContent(body.innerHTML),
+    recallPrompt: readMeta(doc, "recallPrompt"),
     folder: readMeta(doc, "folder"),
     kind: readMeta(doc, "kind"),
     template: readMeta(doc, "template"),

@@ -25,6 +25,7 @@ function makeNote(over: Partial<Parameters<typeof createNoteRecord>[0]> = {}): N
     kind: "permanent",
     template: "concept",
     status: "saved",
+    recallPrompt: "Como esta ideia funciona sem consultar a nota?",
     connections: [{ id: "note-2", reason: "porque sim" }],
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-02T00:00:00.000Z",
@@ -43,6 +44,7 @@ describe("serializeNoteToHtmlDocument / parseHtmlDocumentToNote", () => {
     expect(parsed!.kind).toBe("permanent");
     expect(parsed!.template).toBe("concept");
     expect(parsed!.status).toBe("saved");
+    expect(parsed!.recallPrompt).toBe("Como esta ideia funciona sem consultar a nota?");
     expect(parsed!.createdAt).toBe("2026-01-01T00:00:00.000Z");
     expect(parsed!.updatedAt).toBe("2026-01-02T00:00:00.000Z");
     expect(parsed!.connections).toEqual([{ id: "note-2", reason: "porque sim" }]);
@@ -54,6 +56,9 @@ describe("serializeNoteToHtmlDocument / parseHtmlDocumentToNote", () => {
 
     expect(html.startsWith("<!doctype html>")).toBe(true);
     expect(html).toContain('<meta name="hz:id" content="note-1">');
+    expect(html).toContain(
+      '<meta name="hz:recallPrompt" content="Como esta ideia funciona sem consultar a nota?">'
+    );
     expect(html).toContain('<meta name="hz:connection" content="note-2|porque sim">');
     expect(html).toContain("<style>");
   });
@@ -63,6 +68,13 @@ describe("serializeNoteToHtmlDocument / parseHtmlDocumentToNote", () => {
 
     expect(html).toContain("&lt;b&gt;");
     expect(parseHtmlDocumentToNote(html)!.title).toBe('A <b> & "x"');
+  });
+
+  test("arquivos antigos sem pergunta usam o fallback vazio", () => {
+    const html = serializeNoteToHtmlDocument(makeNote({ recallPrompt: "" }));
+
+    expect(html).not.toContain('name="hz:recallPrompt"');
+    expect(parseHtmlDocumentToNote(html)!.recallPrompt).toBe("");
   });
 
   test("imagem base64 sobrevive ao round-trip", () => {

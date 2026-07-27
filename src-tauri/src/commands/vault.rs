@@ -174,6 +174,7 @@ mod tests {
             template: "blank".to_owned(),
             status: "saved".to_owned(),
             plain_text: "conteúdo".to_owned(),
+            recall_prompt: "O que este conteúdo afirma?".to_owned(),
             content_hash: String::new(),
             created_at: "2026-07-26T20:00:00.000Z".to_owned(),
             updated_at: "2026-07-26T20:00:00.000Z".to_owned(),

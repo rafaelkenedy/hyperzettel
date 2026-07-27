@@ -16,17 +16,21 @@ export function ActiveRecall({
   noteId,
   title,
   content,
+  recallPrompt = "",
   onReviewed,
   compact = false
 }: {
   noteId: string;
   title: string;
   content: string;
+  recallPrompt?: string;
   onReviewed?: () => void;
   compact?: boolean;
 }) {
   const [revealed, setRevealed] = useState(false);
   const answer = useMemo(() => toPlainText(content).trim(), [content]);
+  const question =
+    recallPrompt.trim() || `O que você consegue explicar sobre “${title || "esta ideia"}”?`;
 
   useEffect(() => {
     setRevealed(false);
@@ -43,9 +47,7 @@ export function ActiveRecall({
         <p className="text-2xs font-semibold uppercase tracking-[0.06em] text-hz-accent">
           Recupere sem olhar
         </p>
-        <p className="mt-1 text-xs font-medium leading-snug">
-          O que você consegue explicar sobre “{title || "esta ideia"}”?
-        </p>
+        <p className="mt-1 text-xs font-medium leading-snug">{question}</p>
         <p className="mt-1 text-2xs leading-relaxed text-text-secondary">
           Responda em voz alta, no papel ou mentalmente antes de conferir.
         </p>

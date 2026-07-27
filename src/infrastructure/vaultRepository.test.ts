@@ -42,6 +42,16 @@ describe("toIndexRow", () => {
     );
   });
 
+  test("inclui a pergunta de recuperação na linha derivada", () => {
+    const note = createNoteRecord({
+      id: "note-prompt",
+      title: "Teste ativo",
+      recallPrompt: "Por que testar antes de reler?"
+    });
+
+    expect(toIndexRow(note).recallPrompt).toBe("Por que testar antes de reler?");
+  });
+
   test("reindexa um arquivo manual sem exigir que o nome corresponda ao id", async () => {
     const note = createNoteRecord({ id: "internal-id", title: "Manual" });
     const { vaultRepository } = await import("@/infrastructure/vaultRepository");

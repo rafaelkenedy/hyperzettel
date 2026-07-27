@@ -136,6 +136,7 @@ export function ExplorePanel({
                 noteId={selected.id}
                 title={selected.title}
                 content={selectedNote.content}
+                recallPrompt={selectedNote.recallPrompt}
                 compact
               />
             ) : (

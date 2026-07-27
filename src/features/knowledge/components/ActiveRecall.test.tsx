@@ -20,10 +20,11 @@ describe("ActiveRecall", () => {
         noteId="note-1"
         title="Prática de recuperação"
         content="<p>Tentar lembrar fortalece a recuperação futura.</p>"
+        recallPrompt="Por que tentar lembrar é diferente de reler?"
       />
     );
 
-    expect(screen.getByText(/O que você consegue explicar/)).toBeTruthy();
+    expect(screen.getByText("Por que tentar lembrar é diferente de reler?")).toBeTruthy();
     expect(screen.queryByText(/fortalece a recuperação futura/)).toBeNull();
     expect(screen.queryByTestId("review-grades")).toBeNull();
 
@@ -44,5 +45,11 @@ describe("ActiveRecall", () => {
 
     expect(screen.queryByText("Resposta dois.")).toBeNull();
     expect(screen.getByRole("button", { name: "Revelar nota" })).toBeTruthy();
+  });
+
+  test("usa o título como pergunta quando a nota não define uma", () => {
+    render(<ActiveRecall noteId="note-1" title="Intercalar assuntos" content="Resposta." />);
+
+    expect(screen.getByText(/O que você consegue explicar sobre “Intercalar assuntos”/)).toBeTruthy();
   });
 });

@@ -122,6 +122,11 @@ describe("createNoteRecord", () => {
   test("título vazio vira 'Sem título'", () => {
     expect(note({ id: "1", title: "   " }).title).toBe("Sem título");
   });
+
+  test("normaliza e limita a pergunta de recuperação", () => {
+    expect(note({ id: "1", recallPrompt: "  Por quê?  " }).recallPrompt).toBe("Por quê?");
+    expect(note({ id: "2", recallPrompt: "a".repeat(350) }).recallPrompt).toHaveLength(300);
+  });
 });
 
 describe("normalizeImportedNote", () => {
@@ -154,6 +159,14 @@ describe("normalizeImportedNote", () => {
   test("gera id quando o arquivo não traz um", () => {
     const imported = normalizeImportedNote({ title: "Sem id" }, options);
     expect(imported!.id).toBeTruthy();
+  });
+
+  test("preserva a pergunta de recuperação de backups novos", () => {
+    const imported = normalizeImportedNote(
+      { id: "a", recallPrompt: "  Qual é a relação?  " },
+      options
+    );
+    expect(imported!.recallPrompt).toBe("Qual é a relação?");
   });
 });
 

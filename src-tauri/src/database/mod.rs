@@ -45,7 +45,7 @@ impl Database {
         )?;
         connection.execute_batch(RELATIONS_MIGRATION)?;
         connection.execute_batch(NOTE_INDEX_MIGRATION)?;
-        ensure_note_index_content_hash(&connection)?;
+        ensure_note_index_optional_columns(&connection)?;
         Ok(Self {
             connection: Arc::new(Mutex::new(connection)),
         })
@@ -77,7 +77,7 @@ impl Database {
     }
 }
 
-fn ensure_note_index_content_hash(connection: &Connection) -> Result<(), rusqlite::Error> {
+fn ensure_note_index_optional_columns(connection: &Connection) -> Result<(), rusqlite::Error> {
     let mut statement = connection.prepare("PRAGMA table_info(note_index)")?;
     let columns = statement
         .query_map([], |row| row.get::<_, String>(1))?
@@ -85,6 +85,12 @@ fn ensure_note_index_content_hash(connection: &Connection) -> Result<(), rusqlit
     if !columns.iter().any(|column| column == "content_hash") {
         connection.execute(
             "ALTER TABLE note_index ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''",
+            [],
+        )?;
+    }
+    if !columns.iter().any(|column| column == "recall_prompt") {
+        connection.execute(
+            "ALTER TABLE note_index ADD COLUMN recall_prompt TEXT NOT NULL DEFAULT ''",
             [],
         )?;
     }
@@ -124,7 +130,7 @@ mod tests {
     }
 
     #[test]
-    fn upgrades_a_note_index_created_before_content_hashes() {
+    fn upgrades_a_note_index_created_before_optional_columns() {
         let connection = Connection::open_in_memory().expect("connection");
         connection
             .execute_batch(
@@ -135,7 +141,7 @@ mod tests {
             )
             .expect("old schema");
 
-        ensure_note_index_content_hash(&connection).expect("upgrade");
+        ensure_note_index_optional_columns(&connection).expect("upgrade");
 
         let columns = connection
             .prepare("PRAGMA table_info(note_index)")
@@ -146,5 +152,6 @@ mod tests {
             })
             .expect("columns");
         assert!(columns.iter().any(|column| column == "content_hash"));
+        assert!(columns.iter().any(|column| column == "recall_prompt"));
     }
 }

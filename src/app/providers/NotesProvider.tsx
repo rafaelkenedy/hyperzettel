@@ -99,6 +99,7 @@ function toListNote(row: NoteIndexRow): Note {
     id: row.id,
     title: row.title,
     content: row.plainText,
+    recallPrompt: row.recallPrompt,
     folder: row.folder,
     kind: row.kind,
     template: row.template,
@@ -140,6 +141,7 @@ export interface NotesStore {
   setQuery: (query: string) => void;
   setTitle: (title: string) => void;
   setContent: (content: string) => void;
+  setRecallPrompt: (prompt: string) => void;
   setFolder: (folder: FolderId) => void;
   setTemplate: (template: TemplateId) => void;
   setKind: (kind: NoteKind) => void;
@@ -421,6 +423,10 @@ export function NotesProvider({ children }: { children: ReactNode }) {
 
   const setTitle = useCallback((title: string) => updateDraft({ title }), [updateDraft]);
   const setContent = useCallback((content: string) => updateDraft({ content }), [updateDraft]);
+  const setRecallPrompt = useCallback(
+    (recallPrompt: string) => updateDraft({ recallPrompt: recallPrompt.slice(0, 300) }),
+    [updateDraft]
+  );
   const setFolder = useCallback((folder: FolderId) => updateDraft({ folder }), [updateDraft]);
   const setTemplate = useCallback(
     (template: TemplateId) => updateDraft({ template }),
@@ -837,6 +843,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       setQuery,
       setTitle,
       setContent,
+      setRecallPrompt,
       setFolder,
       setTemplate,
       setKind,
@@ -860,7 +867,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     [
       notesWithDraft, notes, draft, currentNote, visibleNotes, processQueue,
       connectionCounts, relations, folderCounts, kindCounts, scope, query,
-      dirty, saving, ready, loadToken, setTitle, setContent, setFolder,
+      dirty, saving, ready, loadToken, setTitle, setContent, setRecallPrompt, setFolder,
       setTemplate, setKind, addConnection, toggleConnection, setConnectionReason,
       removeConnection, openNote, newNote, newNoteFromTemplate, startGuidedTopic, saveNow,
       persistDraft, deleteActiveNote, patchNote, removeNote, splitNote,

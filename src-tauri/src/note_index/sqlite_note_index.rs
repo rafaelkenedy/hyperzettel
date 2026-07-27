@@ -26,6 +26,7 @@ pub struct NoteIndexRow {
     pub template: String,
     pub status: String,
     pub plain_text: String,
+    pub recall_prompt: String,
     pub content_hash: String,
     pub created_at: String,
     pub updated_at: String,
@@ -73,7 +74,8 @@ impl SqliteNoteIndex {
             let connections = load_connections(connection)?;
             let mut statement = connection.prepare(
                 "SELECT id, file_name, title, folder, kind, template, status, plain_text, \
-                 content_hash, created_at, updated_at FROM note_index ORDER BY updated_at DESC",
+                 recall_prompt, content_hash, created_at, updated_at \
+                 FROM note_index ORDER BY updated_at DESC",
             )?;
             // Liga a uma variável local para o `MappedRows` (que empresta
             // `statement`) ser dropado antes de `statement` no fim do bloco.
@@ -183,11 +185,12 @@ impl SqliteNoteIndex {
 fn write_metadata(tx: &Transaction<'_>, row: &NoteIndexRow) -> Result<(), rusqlite::Error> {
     tx.execute(
         "INSERT INTO note_index (id, file_name, title, folder, kind, template, status, \
-         plain_text, content_hash, created_at, updated_at) \
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11) \
+         plain_text, recall_prompt, content_hash, created_at, updated_at) \
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12) \
          ON CONFLICT(id) DO UPDATE SET file_name=excluded.file_name, title=excluded.title, \
          folder=excluded.folder, kind=excluded.kind, template=excluded.template, \
          status=excluded.status, plain_text=excluded.plain_text, \
+         recall_prompt=excluded.recall_prompt, \
          content_hash=excluded.content_hash, created_at=excluded.created_at, \
          updated_at=excluded.updated_at",
         params![
@@ -199,6 +202,7 @@ fn write_metadata(tx: &Transaction<'_>, row: &NoteIndexRow) -> Result<(), rusqli
             row.template,
             row.status,
             row.plain_text,
+            row.recall_prompt,
             row.content_hash,
             row.created_at,
             row.updated_at
@@ -211,7 +215,11 @@ fn write_search(tx: &Transaction<'_>, row: &NoteIndexRow) -> Result<(), rusqlite
     tx.execute("DELETE FROM note_search WHERE id = ?1", params![row.id])?;
     tx.execute(
         "INSERT INTO note_search (id, title, plain_text) VALUES (?1,?2,?3)",
-        params![row.id, row.title, row.plain_text],
+        params![
+            row.id,
+            row.title,
+            format!("{} {}", row.plain_text, row.recall_prompt)
+        ],
     )?;
     Ok(())
 }
@@ -268,9 +276,10 @@ fn read_index_row(
         template: row.get(5)?,
         status: row.get(6)?,
         plain_text: row.get(7)?,
-        content_hash: row.get(8)?,
-        created_at: row.get(9)?,
-        updated_at: row.get(10)?,
+        recall_prompt: row.get(8)?,
+        content_hash: row.get(9)?,
+        created_at: row.get(10)?,
+        updated_at: row.get(11)?,
         connections: owned,
     })
 }
@@ -306,6 +315,7 @@ mod tests {
             template: "blank".to_owned(),
             status: "saved".to_owned(),
             plain_text: plain_text.to_owned(),
+            recall_prompt: format!("Como explicar {title}?"),
             content_hash: format!("hash-{id}"),
             created_at: "2026-01-01T00:00:00.000Z".to_owned(),
             updated_at: format!("2026-01-01T00:00:0{}.000Z", id.len()),
@@ -376,6 +386,16 @@ mod tests {
             .unwrap();
         assert_eq!(index.search("cafe").unwrap(), vec!["a".to_owned()]);
         assert!(index.search("   ").unwrap().is_empty());
+    }
+
+    #[test]
+    fn search_matches_recall_prompt() {
+        let index = index();
+        let mut row = sample("a", "Título neutro", "corpo neutro");
+        row.recall_prompt = "Por que a intercalação reduz a interferência?".to_owned();
+        index.upsert(&row).unwrap();
+
+        assert_eq!(index.search("intercala").unwrap(), vec!["a".to_owned()]);
     }
 
     #[test]

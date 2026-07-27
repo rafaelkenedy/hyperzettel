@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS note_index (
     template TEXT NOT NULL,
     status TEXT NOT NULL,
     plain_text TEXT NOT NULL,
+    recall_prompt TEXT NOT NULL DEFAULT '',
     content_hash TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -52,4 +53,4 @@ CREATE TABLE IF NOT EXISTS note_retention (
     state_json TEXT NOT NULL
 );
 
-PRAGMA user_version = 3;
+PRAGMA user_version = 4;

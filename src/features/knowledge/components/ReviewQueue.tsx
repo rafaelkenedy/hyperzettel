@@ -27,6 +27,10 @@ export function ReviewQueue({
 }) {
   const notes = useNotes();
   const knowledge = useKnowledge();
+  const savedById = useMemo(
+    () => new Map(notes.savedNotes.map((note) => [note.id, note])),
+    [notes.savedNotes]
+  );
 
   const queue = useMemo(() => {
     const now = Date.now();
@@ -94,9 +98,8 @@ export function ReviewQueue({
                   <ActiveRecall
                     noteId={note.id}
                     title={note.title}
-                    content={
-                      notes.savedNotes.find((candidate) => candidate.id === note.id)?.content ?? ""
-                    }
+                    content={savedById.get(note.id)?.content ?? ""}
+                    recallPrompt={savedById.get(note.id)?.recallPrompt ?? ""}
                     compact
                   />
                 </div>

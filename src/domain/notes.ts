@@ -87,6 +87,8 @@ export interface Note {
   id: string;
   title: string;
   content: string;
+  /** Pergunta opcional mostrada antes do conteúdo durante a recuperação ativa. */
+  recallPrompt: string;
   folder: FolderId;
   kind: NoteKind;
   template: TemplateId;
@@ -100,6 +102,7 @@ export interface NoteInput {
   id: string;
   title?: string;
   content?: string;
+  recallPrompt?: string;
   folder?: string;
   kind?: string;
   template?: string;
@@ -197,6 +200,7 @@ export function createNoteRecord(input: NoteInput): Note {
     id: input.id,
     title: input.title?.trim() || "Sem título",
     content: input.content ?? "",
+    recallPrompt: input.recallPrompt?.trim().slice(0, 300) ?? "",
     folder: isFolderId(input.folder) ? input.folder : "inbox",
     kind: isNoteKind(input.kind) ? input.kind : KIND_FROM_TEMPLATE[template],
     template,
@@ -226,6 +230,10 @@ export function normalizeImportedNote(
         ? source.title.trim().slice(0, 240)
         : "Sem título",
     content: sanitizeContent(source.content),
+    recallPrompt:
+      typeof source.recallPrompt === "string"
+        ? source.recallPrompt.trim().slice(0, 300)
+        : "",
     folder: isFolderId(source.folder) ? source.folder : "inbox",
     kind: isNoteKind(source.kind) ? source.kind : KIND_FROM_TEMPLATE[template],
     template,
