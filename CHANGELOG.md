@@ -8,6 +8,7 @@ segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 
 ### Added
 
+- Adiciona o modelo **Nota de estudo**, com estrutura atômica para aula ou leitura e uma pergunta de recuperação pronta para o ciclo de revisão ativa.
 - A Central do Vault passa a mostrar o estado do backup e recomendar uma exportação semanal; o menu global sinaliza discretamente quando o primeiro backup ou uma atualização está pendente.
 - O backup JSON v3 passa a preservar e restaurar também as decisões de rejeitar relações semânticas, com validação e importação transacional; backups v1 e v2 continuam compatíveis.
 - Primeiro ciclo guiado para vaults vazios: o usuário informa um assunto real e recebe uma nota de estrutura pronta para desenvolver perguntas, ideias e conexões.

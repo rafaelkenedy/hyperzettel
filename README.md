@@ -105,9 +105,14 @@ Na aplicação Tauri, o frontend sincroniza as notas salvas com um serviço Rust
 
 O mapa de conhecimento combina conexões, estimativa de retenção e uma fila de revisão. A fila contém apenas notas vencidas e funciona como uma sessão finita: abre a primeira, avança após cada avaliação e mostra o progresso até a conclusão. Cada nota pode definir uma pergunta de recuperação própria; sem ela, o título vira a pista. A resposta e os graus de lembrança aparecem somente depois da revelação. O agendamento usa SM-2 para recalcular o próximo intervalo. A exportação JSON reúne notas, imagens, esse histórico de aprendizagem e as decisões de rejeitar sugestões semânticas.
 
-O lembrete de backup registra apenas quando o download foi iniciado. Ele não
-envia conteúdo para a rede nem presume que o arquivo continua na pasta
-escolhida; essa confirmação permanece sob controle do usuário.
+O modelo **Nota de estudo** transforma uma única ideia de aula, leitura ou questão
+em uma explicação com palavras próprias, exemplo, limite e fonte. Ele já nasce
+como nota permanente e orienta o título como pergunta de recuperação, entrando
+no mesmo ciclo de revisão após ser concluído.
+
+O lembrete de backup só é renovado depois que o aplicativo salva, reabre e
+verifica o arquivo JSON escolhido pelo usuário. O conteúdo não é enviado para a
+rede.
 
 Os arquivos do modelo e seus hashes estão em `src-tauri/resources/models/embeddinggemma-300m-q4`. Os termos do EmbeddingGemma e o notice distribuído com o aplicativo estão em `src-tauri/resources/licenses`.
 

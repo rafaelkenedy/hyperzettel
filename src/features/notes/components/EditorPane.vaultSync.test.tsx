@@ -74,6 +74,9 @@ afterEach(cleanup);
 
 beforeEach(() => {
   mocks.reloadExternalChanges.mockReset();
+  mocks.notes.externalVaultChange = true;
+  mocks.notes.draft.title = "Rascunho local";
+  mocks.notes.draft.template = "blank";
 });
 
 test("oferece preservar a cópia local quando o vault muda durante a edição", () => {
@@ -86,4 +89,16 @@ test("oferece preservar a cópia local quando o vault muda durante a edição", 
     screen.getByRole("button", { name: "Preservar cópia e recarregar" })
   );
   expect(mocks.reloadExternalChanges).toHaveBeenCalledOnce();
+});
+
+test("orienta o título da nota de estudo como uma pergunta recuperável", () => {
+  mocks.notes.externalVaultChange = false;
+  mocks.notes.draft.title = "";
+  mocks.notes.draft.template = "study";
+
+  render(<EditorPane />);
+
+  expect(
+    screen.getByPlaceholderText("Que pergunta você quer conseguir responder?")
+  ).toBeTruthy();
 });

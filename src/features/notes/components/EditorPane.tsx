@@ -37,6 +37,7 @@ import { useKnowledge } from "@/app/providers/KnowledgeProvider";
 import { useNavigation } from "@/app/providers/NavigationProvider";
 import { useAnnouncer } from "@/app/providers/AnnouncerProvider";
 import { useBackup } from "@/app/useBackup";
+import { findTemplate } from "@/domain/templates";
 import { FormattingToolbar } from "./FormattingToolbar";
 import { IconAction } from "./IconAction";
 import { optimizeImageToDataUrl } from "@/infrastructure/imageOptimizer";
@@ -199,6 +200,8 @@ export function EditorPane({
   }, [notes]);
 
   const slug = slugify(notes.draft.title);
+  const titlePlaceholder =
+    findTemplate(notes.draft.template).titlePlaceholder ?? "Novo Zettel";
   const completionAction = resolveCompletionAction({
     dirty: notes.dirty,
     status: notes.draft.status,
@@ -319,7 +322,7 @@ export function EditorPane({
                 focusEditorStart();
               }}
               rows={1}
-              placeholder="Novo Zettel"
+              placeholder={titlePlaceholder}
               aria-label="Título da nota"
               className="w-full resize-none overflow-hidden border-0 bg-transparent text-[2rem] font-bold leading-[1.2] tracking-[-0.02em] outline-none placeholder:text-neutral-lighter"
             />

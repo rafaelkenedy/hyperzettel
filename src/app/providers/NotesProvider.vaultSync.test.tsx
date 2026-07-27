@@ -51,11 +51,16 @@ function Harness() {
       <span data-testid="external">{String(notes.externalVaultChange)}</span>
       <span data-testid="draft-id">{notes.draft.id}</span>
       <span data-testid="draft-title">{notes.draft.title}</span>
+      <span data-testid="draft-kind">{notes.draft.kind}</span>
+      <span data-testid="draft-template">{notes.draft.template}</span>
       <button type="button" onClick={() => notes.setTitle("Meu rascunho")}>
         Editar
       </button>
       <button type="button" onClick={() => void notes.reloadExternalChanges()}>
         Recarregar
+      </button>
+      <button type="button" onClick={() => void notes.newNoteFromTemplate("study")}>
+        Criar nota de estudo
       </button>
     </div>
   );
@@ -91,6 +96,22 @@ describe("sincronização do vault durante a sessão", () => {
     expect(mocks.list).toHaveBeenCalledTimes(2);
     expect(screen.getByTestId("external").textContent).toBe("false");
     expect(mocks.announce).toHaveBeenCalledWith("Mudanças externas carregadas.");
+  });
+
+  test("aplica a estrutura permanente do modelo de estudo", async () => {
+    render(
+      <NotesProvider>
+        <Harness />
+      </NotesProvider>
+    );
+    await waitFor(() => expect(screen.getByTestId("ready").textContent).toBe("true"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Criar nota de estudo" }));
+
+    expect(screen.getByTestId("draft-kind").textContent).toBe("permanent");
+    expect(screen.getByTestId("draft-template").textContent).toBe("study");
+    expect(mocks.setView).toHaveBeenCalledWith("note");
+    expect(mocks.announce).toHaveBeenCalledWith("Modelo aplicado: Nota de estudo.");
   });
 
   test("pausa o rascunho e o preserva com nova identidade antes de recarregar", async () => {

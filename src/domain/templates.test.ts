@@ -39,6 +39,17 @@ describe("TEMPLATES", () => {
       expect(validGroups).toContain(template.group);
     });
   });
+
+  test("o modelo de estudo já prepara uma nota permanente para recuperação ativa", () => {
+    const study = findTemplate("study");
+
+    expect(study.kind).toBe("permanent");
+    expect(study.folder).toBe("resources");
+    expect(study.titlePlaceholder).toContain("pergunta");
+    expect(study.content).toContain("Pergunta que esta nota responde");
+    expect(study.content).toContain("Exemplo ou aplicação");
+    expect(study.content).toContain("Fonte");
+  });
 });
 
 describe("findTemplate", () => {

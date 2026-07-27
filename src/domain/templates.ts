@@ -31,6 +31,8 @@ export interface NoteTemplate {
   group: TemplateGroup;
   folder: FolderId;
   content: string;
+  /** Instrução contextual para o título quando o modelo exige uma formulação específica. */
+  titlePlaceholder?: string;
   /** Alguns modelos sugerem um título, como a nota diária com a data. */
   title?: () => string;
 }
@@ -71,6 +73,16 @@ export const TEMPLATES: readonly NoteTemplate[] = Object.freeze([
     description: "Uma ideia explicada de forma atômica e reutilizável.",
     folder: "resources",
     content: `<h2>Em uma frase</h2><p>Explique a ideia central sem depender de outras notas.</p><h2>Problema que resolve</h2><p>Em que situação este conceito é útil?</p><h2>Como funciona</h2><p>Desenvolva a explicação em suas próprias palavras.</p><h2>Exemplo</h2><p>Mostre um caso concreto.</p><h2>Limites e comparações</h2><p>Quando a ideia não se aplica?</p><h2>Pergunta em aberto</h2><ul><li>O que ainda precisa ser entendido ou testado?</li></ul>`
+  },
+  {
+    id: "study",
+    kind: "permanent",
+    group: "pensar",
+    name: "Nota de estudo",
+    description: "Uma ideia de aula ou leitura preparada para recordar.",
+    folder: "resources",
+    titlePlaceholder: "Que pergunta você quer conseguir responder?",
+    content: `<h2>Pergunta que esta nota responde</h2><p>Formule uma pergunta específica sobre uma única ideia.</p><h2>Resposta curta</h2><p>Responda em uma frase, com suas próprias palavras.</p><h2>Como funciona</h2><p>Reconstrua o raciocínio sem copiar o material.</p><h2>Exemplo ou aplicação</h2><p>Use um caso concreto, uma questão ou uma situação de prova.</p><h2>Limite ou pegadinha</h2><p>Quando essa explicação falha ou costuma confundir?</p><h2>Fonte</h2><p>Registre aula, livro, artigo ou trecho de origem.</p>`
   },
   {
     id: "reference",

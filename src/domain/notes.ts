@@ -48,6 +48,7 @@ export const TEMPLATE_LABELS = {
   area: "Área",
   reference: "Referência",
   concept: "Conceito",
+  study: "Estudo",
   session: "Sessão",
   decision: "Decisão",
   meeting: "Reunião",
@@ -136,6 +137,7 @@ export function isNoteKind(value: unknown): value is NoteKind {
  */
 const KIND_FROM_TEMPLATE: Record<TemplateId, NoteKind> = {
   concept: "permanent",
+  study: "permanent",
   reference: "source",
   project: "structure",
   area: "structure",

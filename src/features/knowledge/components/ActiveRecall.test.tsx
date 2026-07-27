@@ -52,4 +52,17 @@ describe("ActiveRecall", () => {
 
     expect(screen.getByText(/O que você consegue explicar sobre “Intercalar assuntos”/)).toBeTruthy();
   });
+
+  test("preserva um título que já foi formulado como pergunta", () => {
+    render(
+      <ActiveRecall
+        noteId="note-1"
+        title="Por que a inflação pode elevar os juros?"
+        content="Resposta."
+      />
+    );
+
+    expect(screen.getByText("Por que a inflação pode elevar os juros?")).toBeTruthy();
+    expect(screen.queryByText(/O que você consegue explicar/)).toBeNull();
+  });
 });

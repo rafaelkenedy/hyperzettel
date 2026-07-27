@@ -29,8 +29,12 @@ export function ActiveRecall({
 }) {
   const [revealed, setRevealed] = useState(false);
   const answer = useMemo(() => toPlainText(content).trim(), [content]);
+  const trimmedTitle = title.trim();
   const question =
-    recallPrompt.trim() || `O que você consegue explicar sobre “${title || "esta ideia"}”?`;
+    recallPrompt.trim() ||
+    (trimmedTitle.endsWith("?")
+      ? trimmedTitle
+      : `O que você consegue explicar sobre “${trimmedTitle || "esta ideia"}”?`);
 
   useEffect(() => {
     setRevealed(false);
