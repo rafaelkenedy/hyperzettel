@@ -56,7 +56,7 @@ export function KnowledgeMap() {
   );
 
   /** Selecionar da fila também move o foco do grafo, sem interromper a revisão. */
-  function focusNote(id: string) {
+  function focusNote(id: string | null) {
     setSelectedId(id);
   }
 

@@ -99,6 +99,14 @@ export function isReviewEligible(note: Pick<Note, "kind" | "status">): boolean {
   return note.status === "saved" && note.kind !== "fleeting";
 }
 
+export function isReviewDue(
+  note: Pick<GraphNote, "kind" | "status" | "dueAt" | "strength">,
+  at: number = Date.now()
+): boolean {
+  if (!isReviewEligible(note)) return false;
+  return note.dueAt ? Date.parse(note.dueAt) <= at : note.strength < 0.55;
+}
+
 function emptyState(): KnowledgeState {
   return { version: 1, notes: {}, edges: {} };
 }
@@ -301,11 +309,7 @@ export function createKnowledgeModel(initialState: unknown = null) {
         mediumEdges: edges.filter((edge) => edge.level === "medium").length,
         weakEdges: edges.filter((edge) => edge.level === "weak").length,
         /* Vencidas de fato: nunca revisadas contam quando a estimativa cai. */
-        reviewDue: notes.filter(
-          (note) =>
-            isReviewEligible(note) &&
-            (note.dueAt ? Date.parse(note.dueAt) <= at : note.strength < 0.55)
-        ).length
+        reviewDue: notes.filter((note) => isReviewDue(note, at)).length
       }
     };
   }

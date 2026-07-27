@@ -6,13 +6,18 @@
  * entra pela estimativa, já que não tem data.
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button, cn } from "@relume_io/relume-ui";
+import { CircleCheckBig } from "lucide-react";
 
 import { useNotes } from "@/app/providers/NotesProvider";
 import { useKnowledge } from "@/app/providers/KnowledgeProvider";
 import { LEVEL_TONE, dueSummary, percent } from "../lib/format";
-import type { GraphNote } from "../model/knowledgeModel";
+import {
+  isReviewDue,
+  isReviewEligible,
+  type GraphNote
+} from "../model/knowledgeModel";
 import { ActiveRecall } from "./ActiveRecall";
 
 const QUEUE_SIZE = 25;
@@ -23,7 +28,7 @@ export function ReviewQueue({
   onFocus
 }: {
   selectedId: string | null;
-  onFocus: (id: string) => void;
+  onFocus: (id: string | null) => void;
 }) {
   const notes = useNotes();
   const knowledge = useKnowledge();
@@ -32,33 +37,123 @@ export function ReviewQueue({
     [notes.savedNotes]
   );
 
-  const queue = useMemo(() => {
-    const now = Date.now();
+  const dueCandidates = useMemo(() => {
+    const now = Date.parse(knowledge.snapshot.at);
     const dueScore = (note: GraphNote) =>
       note.dueAt ? Date.parse(note.dueAt) : now + note.strength * YEAR;
 
     return [...knowledge.snapshot.notes]
-      .filter((note) => note.status === "saved" && note.kind !== "fleeting")
+      .filter((note) => isReviewDue(note, now))
       .sort(
         (left, right) =>
           dueScore(left) - dueScore(right) || left.title.localeCompare(right.title, "pt-BR")
       )
       .slice(0, QUEUE_SIZE);
-  }, [knowledge.snapshot.notes]);
+  }, [knowledge.snapshot.at, knowledge.snapshot.notes]);
+
+  /*
+   * A sessão captura a fila vencida ao abrir. Assim avaliar uma nota não faz a
+   * próxima posição ser preenchida por outra e o usuário tem um fim alcançável.
+   */
+  const [sessionIds, setSessionIds] = useState<string[]>(() =>
+    dueCandidates.map((note) => note.id)
+  );
+  const [reviewedIds, setReviewedIds] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    if (!sessionIds.length && !reviewedIds.size && dueCandidates.length) {
+      setSessionIds(dueCandidates.map((note) => note.id));
+    }
+  }, [dueCandidates, reviewedIds.size, sessionIds.length]);
+
+  const queue = useMemo(() => {
+    const snapshotById = new Map(
+      knowledge.snapshot.notes.map((note) => [note.id, note])
+    );
+    return sessionIds
+      .map((id) => snapshotById.get(id))
+      .filter(
+        (note): note is GraphNote =>
+          note !== undefined && !reviewedIds.has(note.id)
+      );
+  }, [knowledge.snapshot.notes, reviewedIds, sessionIds]);
+
+  const total = sessionIds.length;
+  const completed = sessionIds.filter((id) => reviewedIds.has(id)).length;
+
+  useEffect(() => {
+    if (queue.length && !queue.some((note) => note.id === selectedId)) {
+      onFocus(queue[0]!.id);
+    } else if (!queue.length && selectedId && sessionIds.includes(selectedId)) {
+      onFocus(null);
+    }
+  }, [onFocus, queue, selectedId, sessionIds]);
+
+  function completeReview(id: string) {
+    const next = queue.find((note) => note.id !== id);
+    setReviewedIds((current) => new Set(current).add(id));
+    onFocus(next?.id ?? null);
+  }
 
   if (!queue.length) {
+    const hasReviewableNotes = knowledge.snapshot.notes.some(isReviewEligible);
+
     return (
-      <p className="py-10 text-center text-xs text-text-secondary">
-        Crie notas para formar uma fila de revisão.
-      </p>
+      <div className="py-10 text-center">
+        {completed ? (
+          <>
+            <CircleCheckBig
+              className="mx-auto size-8 text-hz-accent"
+              strokeWidth={1.6}
+              aria-hidden="true"
+            />
+            <p className="mt-2 text-sm font-semibold">Sessão concluída</p>
+            <p className="mt-1 text-xs text-text-secondary">
+              {completed} {completed === 1 ? "nota revisada" : "notas revisadas"}.
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="text-sm font-semibold">
+              {hasReviewableNotes ? "Tudo em dia" : "Sua fila está vazia"}
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-text-secondary">
+              {hasReviewableNotes
+                ? "Nenhuma revisão está vencida agora."
+                : "Conclua uma nota permanente para iniciar as revisões."}
+            </p>
+          </>
+        )}
+      </div>
     );
   }
 
   return (
     <>
+      <div className="mb-3" role="status" aria-live="polite">
+        <div className="mb-1.5 flex items-center justify-between text-2xs text-text-secondary">
+          <span>
+            {completed} de {total} {total === 1 ? "concluída" : "concluídas"}
+          </span>
+          <span>{queue.length} {queue.length === 1 ? "restante" : "restantes"}</span>
+        </div>
+        <div
+          className="h-1.5 overflow-hidden rounded-full bg-background-secondary"
+          role="progressbar"
+          aria-label="Progresso da sessão de revisão"
+          aria-valuemin={0}
+          aria-valuemax={total}
+          aria-valuenow={completed}
+        >
+          <div
+            className="h-full rounded-full bg-hz-accent transition-[width]"
+            style={{ width: `${total ? (completed / total) * 100 : 0}%` }}
+          />
+        </div>
+      </div>
+
       <p className="mb-2 text-2xs leading-relaxed text-text-secondary">
-        Vencidas primeiro. Selecione uma nota, tente explicá-la e só então revele a
-        resposta.
+        Vencidas primeiro. Tente explicar a ideia e só então revele a resposta.
       </p>
 
       <ul className="flex flex-col gap-1">
@@ -100,6 +195,7 @@ export function ReviewQueue({
                     title={note.title}
                     content={savedById.get(note.id)?.content ?? ""}
                     recallPrompt={savedById.get(note.id)?.recallPrompt ?? ""}
+                    onReviewed={() => completeReview(note.id)}
                     compact
                   />
                 </div>

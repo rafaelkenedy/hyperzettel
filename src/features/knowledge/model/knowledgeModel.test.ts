@@ -9,7 +9,11 @@
 import { describe, expect, test } from "vitest";
 
 import { createNoteRecord, type Note } from "@/domain/notes";
-import { createKnowledgeModel, normalizeKnowledgeState } from "./knowledgeModel";
+import {
+  createKnowledgeModel,
+  isReviewDue,
+  normalizeKnowledgeState
+} from "./knowledgeModel";
 import { policy } from "./retention";
 import { SM2 } from "./scheduler";
 
@@ -245,6 +249,27 @@ describe("estado persistido", () => {
 });
 
 describe("métricas e curva", () => {
+  test("centraliza a regra que decide se uma nota está vencida", () => {
+    const at = Date.parse("2026-05-01T12:00:00.000Z");
+    const base = {
+      kind: "permanent" as const,
+      status: "saved" as const,
+      dueAt: null,
+      strength: 0.6
+    };
+
+    expect(isReviewDue(base, at)).toBe(false);
+    expect(isReviewDue({ ...base, strength: 0.54 }, at)).toBe(true);
+    expect(
+      isReviewDue({ ...base, dueAt: "2026-05-02T12:00:00.000Z" }, at)
+    ).toBe(false);
+    expect(
+      isReviewDue({ ...base, dueAt: "2026-04-30T12:00:00.000Z" }, at)
+    ).toBe(true);
+    expect(isReviewDue({ ...base, status: "draft", strength: 0.1 }, at)).toBe(false);
+    expect(isReviewDue({ ...base, kind: "fleeting", strength: 0.1 }, at)).toBe(false);
+  });
+
   test("conta como vencida a nota cujo prazo passou", () => {
     const model = createKnowledgeModel(null);
     model.sync([note("a")]);
