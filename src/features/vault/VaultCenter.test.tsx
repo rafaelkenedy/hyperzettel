@@ -2,9 +2,10 @@
  * @vitest-environment jsdom
  */
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+import type { BackupStatus } from "@/application/backupReminder";
 import { createNoteRecord } from "@/domain/notes";
 import { VaultCenter } from "./VaultCenter";
 
@@ -17,7 +18,8 @@ const mocks = vi.hoisted(() => ({
   adoptDocument: vi.fn(),
   resolveDuplicateId: vi.fn(),
   reindexFromVault: vi.fn(),
-  openFolder: vi.fn()
+  openFolder: vi.fn(),
+  exportBackup: vi.fn()
 }));
 
 vi.mock("@/app/providers/AnnouncerProvider", () => ({
@@ -44,6 +46,8 @@ vi.mock("@/infrastructure/vaultRepository", () => ({
   }
 }));
 
+afterEach(cleanup);
+
 beforeEach(() => {
   Object.values(mocks).forEach((mock) => mock.mockReset());
   mocks.getInfo.mockResolvedValue({
@@ -60,9 +64,27 @@ beforeEach(() => {
   mocks.openFolder.mockResolvedValue(undefined);
 });
 
+function renderVaultCenter(
+  backupStatus: BackupStatus = {
+    state: "never",
+    lastExportedAt: null,
+    ageDays: null
+  }
+) {
+  return render(
+    <VaultCenter
+      open
+      onOpenChange={vi.fn()}
+      backupStatus={backupStatus}
+      backupExporting={false}
+      onExportBackup={mocks.exportBackup}
+    />
+  );
+}
+
 describe("VaultCenter", () => {
   test("mostra caminho, diagnóstico e abre a pasta", async () => {
-    render(<VaultCenter open onOpenChange={vi.fn()} />);
+    renderVaultCenter();
 
     expect(await screen.findByText("C:\\dados\\Hyperzettel\\vault")).toBeTruthy();
     expect(screen.getByText("manual.html")).toBeTruthy();
@@ -70,6 +92,29 @@ describe("VaultCenter", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Abrir pasta" }));
     await waitFor(() => expect(mocks.openFolder).toHaveBeenCalledOnce());
+  });
+
+  test("torna o primeiro backup visível e oferece a ação assistida", async () => {
+    renderVaultCenter();
+
+    expect(screen.getByText("Primeiro backup recomendado")).toBeTruthy();
+    expect(
+      screen.getByText(/preserva revisões e decisões semânticas/)
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Exportar backup" }));
+    expect(mocks.exportBackup).toHaveBeenCalledOnce();
+  });
+
+  test("mostra quando o backup semanal está em dia", () => {
+    renderVaultCenter({
+      state: "current",
+      lastExportedAt: "2026-07-26T12:00:00.000Z",
+      ageDays: 1
+    });
+
+    expect(screen.getByText("Backup em dia")).toBeTruthy();
+    expect(screen.getByText(/feita ontem/)).toBeTruthy();
   });
 
   test("adota arquivo externo, atualiza a coleção e verifica novamente", async () => {
@@ -80,7 +125,7 @@ describe("VaultCenter", () => {
     });
     mocks.adoptDocument.mockResolvedValue(adopted);
 
-    render(<VaultCenter open onOpenChange={vi.fn()} />);
+    renderVaultCenter();
 
     fireEvent.click(await screen.findByRole("button", { name: "Adotar" }));
 
@@ -114,7 +159,7 @@ describe("VaultCenter", () => {
       separated: [separated]
     });
 
-    render(<VaultCenter open onOpenChange={vi.fn()} />);
+    renderVaultCenter();
 
     fireEvent.click(
       await screen.findByRole("button", {

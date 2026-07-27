@@ -9,6 +9,7 @@ import {
 } from "@relume_io/relume-ui";
 import {
   Database,
+  FileDown,
   FilePlus2,
   FolderOpen,
   LoaderCircle,
@@ -19,6 +20,7 @@ import {
 
 import { useAnnouncer } from "@/app/providers/AnnouncerProvider";
 import { useNotes } from "@/app/providers/NotesProvider";
+import type { BackupStatus } from "@/application/backupReminder";
 import { enqueueNoteIndexing } from "@/features/knowledge";
 import {
   vaultErrorMessage,
@@ -41,12 +43,48 @@ function issueLabel(issue: VaultIntegrityIssue): string {
     : "Identidade duplicada";
 }
 
+function backupCopy(status: BackupStatus): { title: string; detail: string } {
+  if (status.state === "empty") {
+    return {
+      title: "Backup disponível após a primeira nota",
+      detail: "Quando houver conteúdo, o Hyperzettel recomendará uma exportação semanal."
+    };
+  }
+  if (status.state === "never") {
+    return {
+      title: "Primeiro backup recomendado",
+      detail: "Este vault ainda não registrou uma exportação JSON."
+    };
+  }
+  const age =
+    status.ageDays === 0
+      ? "hoje"
+      : status.ageDays === 1
+        ? "ontem"
+        : `há ${status.ageDays} dias`;
+  return status.state === "due"
+    ? {
+        title: "Backup semanal recomendado",
+        detail: `A última exportação foi feita ${age}.`
+      }
+    : {
+        title: "Backup em dia",
+        detail: `A última exportação foi feita ${age}.`
+      };
+}
+
 export function VaultCenter({
   open,
-  onOpenChange
+  onOpenChange,
+  backupStatus,
+  backupExporting,
+  onExportBackup
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  backupStatus: BackupStatus;
+  backupExporting: boolean;
+  onExportBackup: () => void;
 }) {
   const notes = useNotes();
   const { announce } = useAnnouncer();
@@ -56,6 +94,8 @@ export function VaultCenter({
   const [adopting, setAdopting] = useState<string | null>(null);
   const [resolving, setResolving] = useState<string | null>(null);
   const [feedback, setFeedback] = useState("");
+  const backup = backupCopy(backupStatus);
+  const backupDue = backupStatus.state === "never" || backupStatus.state === "due";
 
   const refresh = useCallback(async () => {
     setBusy(true);
@@ -223,6 +263,53 @@ export function VaultCenter({
               >
                 <FolderOpen className="size-3.5" strokeWidth={1.8} />
                 Abrir pasta
+              </Button>
+            </div>
+          </section>
+
+          <section
+            className={`mt-4 rounded-xl border p-4 ${
+              backupDue
+                ? "border-[#ecd9ac] bg-[#fff9e9]"
+                : backupStatus.state === "current"
+                  ? "border-[#cfe6d7] bg-[#f1f8f3]"
+                  : "border-border-primary bg-background-secondary"
+            }`}
+          >
+            <div className="flex flex-wrap items-start gap-3">
+              <FileDown
+                className={`mt-0.5 size-4 shrink-0 ${
+                  backupDue ? "text-[#7a5411]" : "text-text-secondary"
+                }`}
+                strokeWidth={1.8}
+              />
+              <div className="min-w-0 flex-1">
+                <p className="text-2xs font-medium uppercase tracking-[0.08em] text-text-secondary">
+                  Proteção do histórico
+                </p>
+                <h3 className="mt-1 text-[13px] font-semibold">{backup.title}</h3>
+                <p className="mt-1 text-2xs leading-relaxed text-text-secondary">
+                  {backup.detail} O JSON preserva revisões e decisões semânticas que não podem ser
+                  reconstruídas apenas dos HTMLs.
+                </p>
+                {backupStatus.state !== "empty" ? (
+                  <p className="mt-1 text-[10px] leading-relaxed text-text-tertiary">
+                    {backupStatus.state === "never"
+                      ? "Depois de exportar, mantenha o arquivo na pasta escolhida."
+                      : "A data registra que o download foi iniciado; confirme o arquivo na pasta escolhida."}
+                  </p>
+                ) : null}
+              </div>
+              <Button
+                size="sm"
+                className="h-8 shrink-0 border-text-primary bg-text-primary px-3 text-xs text-background-primary"
+                onClick={onExportBackup}
+                disabled={backupExporting || backupStatus.state === "empty"}
+              >
+                {backupExporting ? (
+                  <LoaderCircle className="mr-1.5 size-3.5 animate-spin" />
+                ) : null}
+                {backupExporting ? "Preparando…" : "Exportar backup"}
               </Button>
             </div>
           </section>

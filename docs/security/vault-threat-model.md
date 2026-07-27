@@ -64,6 +64,9 @@ os mesmos privilégios.
 - O backup rejeita formato desconhecido, entradas sem coleção válida e arquivos
   maiores que 120 MB. Rejeições semânticas têm limite de quantidade e validação
   de IDs, hashes, pipeline e timestamp antes da gravação transacional do lote.
+- Com notas no vault, a interface recomenda o primeiro backup e renova o
+  lembrete após sete dias. Apenas o timestamp da exportação iniciada fica no
+  `localStorage`; o conteúdo não é duplicado ali.
 
 ### IPC e identidade
 
@@ -107,7 +110,7 @@ sempre que a fronteira de persistência mudar.
 
 | Prioridade | Risco | Próximo controle recomendado |
 | --- | --- | --- |
-| Alta | Perda de estado não derivável desde o último backup manual | Tornar a necessidade de backup periódico visível e oferecer uma rotina assistida. |
+| Média | Download iniciado não garante que o arquivo permaneceu em local seguro | Considerar destino nativo configurável ou verificação explícita do arquivo numa evolução futura. |
 | Alta | Exaustão de memória por HTML/base64 grande | Definir limites por documento e validar antes de transferir/parsear. |
 | Média | Mudança externa não percebida durante sessão longa | Observar o diretório ou oferecer ação clara de recarregar/reconciliar. |
 | Média | Corrida TOCTOU com outro processo local | Revalidar hash o mais próximo possível da publicação e documentar o limite de concorrência. |
