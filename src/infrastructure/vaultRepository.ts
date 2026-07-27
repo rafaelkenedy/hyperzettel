@@ -443,6 +443,15 @@ async function resolveDuplicateId(
  * ou editadas fora do app e repara índices antigos sem fingerprints.
  */
 async function reconcileIndexWithVault(): Promise<ReindexReport | null> {
+  if (!(await hasExternalChanges())) return null;
+  return reindexFromVault();
+}
+
+/**
+ * Compara índice e vault sem reconstruir nada. Usado ao retomar a janela para
+ * detectar uma edição externa antes que o autosave tente publicar o rascunho.
+ */
+async function hasExternalChanges(): Promise<boolean> {
   const [rows, fingerprints] = await Promise.all([list(), listFileNames()]);
   const indexedNames = rows
     .map((row) => `${row.fileName}:${row.contentHash}`)
@@ -454,8 +463,7 @@ async function reconcileIndexWithVault(): Promise<ReindexReport | null> {
     indexedNames.length === vaultNames.length &&
     indexedNames.every((fileName, index) => fileName === vaultNames[index]);
 
-  if (matches) return null;
-  return reindexFromVault();
+  return !matches;
 }
 
 export class VaultIntegrityError extends Error {
@@ -538,6 +546,7 @@ export const vaultRepository = {
   resolveDuplicateId,
   rebuildIndex,
   reindexFromVault,
+  hasExternalChanges,
   reconcileIndexWithVault,
   getRetention,
   setRetention

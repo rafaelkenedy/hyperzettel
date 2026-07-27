@@ -85,6 +85,10 @@ Security boundaries, abuse cases, and residual risks are maintained in the
   the Central do Vault explains how to recover it.
 - **`<meta>` for connections** is slightly awkward (repeated tags) but keeps everything in one file; the SQLite index is the queryable form.
 - **External-write conflicts fail closed.** The application does not overwrite a file whose hash changed since it was indexed; the in-memory draft remains dirty and the user is told to reconcile the vault.
+- **Window resume is a synchronization boundary.** Focus/visibility compares
+  physical fingerprints without mutation. A clean session reloads
+  automatically; a dirty draft pauses autosave and must be preserved as a new
+  note identity before the external version is accepted.
 - **File names remain human-friendly but stable.** Renaming a title does not rename its file. Users may rename files manually because the convention is optional.
 - **Backups remain necessary.** Deleting or corrupting SQLite does not lose note
   documents, but can lose retention history and rejected-relation decisions

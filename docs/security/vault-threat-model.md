@@ -47,7 +47,7 @@ os mesmos privilégios.
 | Classe | Cenário | Controles existentes | Risco residual |
 | --- | --- | --- | --- |
 | **Spoofing** | Um HTML forja o `hz:id` de outra nota ou duas cópias usam o mesmo ID. | Parse da identidade interna; duplicatas ficam fora do índice; resolução explícita escolhe a cópia que conserva o ID; comandos conferem ID solicitado contra o HTML. | Um processo local pode continuar modificando os arquivos; não há assinatura criptográfica de autoria. |
-| **Tampering** | Um editor altera, renomeia ou remove a nota entre a leitura e uma mutação. | SHA-256 no índice; comparação antes de ler/salvar/excluir; adoção e reparo usam compare-and-set por hash; conflito não sobrescreve conteúdo; gravação temporária seguida de `rename`. | Existe uma janela TOCTOU porque o filesystem não oferece compare-and-set atômico por conteúdo. Falha de energia após `rename` não tem garantia forte sem `fsync` do diretório pai. |
+| **Tampering** | Um editor altera, renomeia ou remove a nota entre a leitura e uma mutação. | SHA-256 no índice; comparação antes de ler/salvar/excluir; adoção e reparo usam compare-and-set por hash; ao retomar foco/visibilidade, fingerprints são comparados sem mutação; sessão limpa recarrega e rascunho sujo tem autosave pausado até ser preservado com novo ID; conflito não sobrescreve conteúdo; gravação temporária seguida de `rename`. | Existe uma janela TOCTOU porque o filesystem não oferece compare-and-set atômico por conteúdo. Mudanças enquanto a janela permanece continuamente ativa só são percebidas na próxima operação protegida ou retomada. Falha de energia após `rename` não tem garantia forte sem `fsync` do diretório pai. |
 | **Repudiation** | Não é possível saber quem editou ou excluiu um arquivo. | Mensagens de operação e timestamps ajudam no diagnóstico local. | Não há log de auditoria nem atribuição. É uma decisão compatível com um app pessoal local, não com uso multiusuário regulado. |
 | **Information disclosure** | HTML malicioso tenta carregar dados ou escapar do vault; outra pessoa lê os arquivos. | Sanitização na importação/serialização; CSP restringe scripts, conexões e origens; nomes aceitos são apenas `.html` simples; caminhos, links simbólicos e tipos não regulares são rejeitados; runtime não requer nuvem. | Vault e backups são texto claro. Quem obtiver acesso à conta, ao disco ou à pasta de backup pode ler notas e imagens. `data:` e `blob:` são permitidos para imagens. |
 | **Denial of service** | HTML ou imagem base64 muito grande consome memória; duplicatas ou SQLite corrompido impedem a carga. | Importação de backup limitada a 120 MB; cada HTML é limitado a 25 MiB antes do IPC e da leitura; arquivos externos maiores são isolados sem serem carregados; hashes normais são calculados em streaming; conflitos são isolados; projeções e embeddings podem ser reconstruídos; operações de escrita no processo são serializadas. | O parse de cada arquivo aceito ainda não é incremental e uma coleção hostil com muitos documentos dentro do teto pode causar alta CPU; estado de revisão depende de backup se o SQLite for perdido. |
@@ -75,6 +75,9 @@ os mesmos privilégios.
 - Os comandos não inferem identidade a partir do nome do arquivo.
 - Leitura, salvamento, exclusão e adoção validam a relação entre ID, HTML e
   hash.
+- Ao retomar a janela, a interface compara nome + hash sem alterar o índice.
+  Se o editor está limpo, reconcilia e recarrega. Se há rascunho local, pausa o
+  autosave e exige preservá-lo como nova nota antes de aceitar a versão externa.
 - Erros de índice não autorizam uma segunda escrita ou exclusão destrutiva; a
   recuperação primeiro observa o estado físico.
 
@@ -102,6 +105,8 @@ os mesmos privilégios.
 
 - nota criada, lida, renomeada externamente, reconciliada e excluída por ID;
 - edição externa bloqueia leitura destrutiva, salvamento e exclusão;
+- retomada limpa carrega mudança externa e retomada suja preserva o rascunho
+  com nova identidade antes de reconciliar;
 - arquivo sem `hz:id` é adotado somente se o hash ainda corresponde;
 - duplicatas são isoladas e separadas sem apagar conteúdo;
 - nome com travessia, extensão inválida ou link simbólico é rejeitado;
@@ -117,7 +122,6 @@ sempre que a fronteira de persistência mudar.
 | Prioridade | Risco | Próximo controle recomendado |
 | --- | --- | --- |
 | Média | Download iniciado não garante que o arquivo permaneceu em local seguro | Considerar destino nativo configurável ou verificação explícita do arquivo numa evolução futura. |
-| Média | Mudança externa não percebida durante sessão longa | Observar o diretório ou oferecer ação clara de recarregar/reconciliar. |
 | Média | Corrida TOCTOU com outro processo local | Revalidar hash o mais próximo possível da publicação e documentar o limite de concorrência. |
 | Baixa | Falta de trilha forense | Só adicionar log local se surgir caso multiusuário ou requisito regulatório. |
 

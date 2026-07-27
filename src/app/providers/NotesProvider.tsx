@@ -135,6 +135,9 @@ export interface NotesStore {
   dirty: boolean;
   saving: boolean;
   ready: boolean;
+  /** Há mudança externa aguardando uma decisão porque existe rascunho local. */
+  externalVaultChange: boolean;
+  syncingVault: boolean;
   /** Incrementa a cada carga de nota; o editor usa para repopular o DOM. */
   loadToken: number;
 
@@ -162,6 +165,8 @@ export interface NotesStore {
   splitNote: (id: string, sections: NoteSection[]) => Promise<Note[] | undefined>;
   /** Recarrega tudo do disco. Usado depois de importar um backup. */
   reload: () => Promise<Note[]>;
+  /** Preserva o rascunho, quando necessário, e aceita o estado atual do vault. */
+  reloadExternalChanges: () => Promise<void>;
   adoptImported: (notes: Note[]) => void;
 }
 
@@ -179,6 +184,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [ready, setReady] = useState(false);
+  const [externalVaultChange, setExternalVaultChange] = useState(false);
+  const [syncingVault, setSyncingVault] = useState(false);
   const [loadToken, setLoadToken] = useState(0);
   /** Ids que casam com a busca FTS; `null` quando não há busca ativa. */
   const [searchIds, setSearchIds] = useState<Set<string> | null>(null);
@@ -193,18 +200,34 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const autosaveRef = useRef<number>(0);
   const createdInSessionRef = useRef(true);
   const notesRef = useRef(notes);
+  const readyRef = useRef(ready);
+  const externalVaultChangeRef = useRef(externalVaultChange);
+  const vaultSyncRef = useRef(false);
+  const vaultProbeRef = useRef(false);
+  const lastVaultProbeRef = useRef(0);
+  const preservedDraftCopyRef = useRef<Note | null>(null);
 
   draftRef.current = draft;
   currentNoteRef.current = currentNote;
   dirtyRef.current = dirty;
   savingRef.current = saving;
   notesRef.current = notes;
+  readyRef.current = ready;
+  externalVaultChangeRef.current = externalVaultChange;
 
   const persistNote = useCallback(
     async (
       requestedStatus: "draft" | "saved" = "draft",
       isManual = false
     ): Promise<Note | null> => {
+      if (externalVaultChangeRef.current) {
+        if (isManual) {
+          announce(
+            "O vault mudou fora do aplicativo. Preserve o rascunho e recarregue antes de concluir."
+          );
+        }
+        return null;
+      }
       if (savingRef.current) {
         // Uma gravação já está em curso; espera terminar antes de decidir.
         await new Promise<void>((resolve) => {
@@ -282,8 +305,10 @@ export function NotesProvider({ children }: { children: ReactNode }) {
 
   const markDirty = useCallback(() => {
     revisionRef.current += 1;
+    preservedDraftCopyRef.current = null;
     setDirty(true);
     window.clearTimeout(autosaveRef.current);
+    if (externalVaultChangeRef.current) return;
     autosaveRef.current = window.setTimeout(() => void persistNote("draft"), AUTOSAVE_DELAY);
   }, [persistNote]);
 
@@ -666,6 +691,94 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     return all;
   }, []);
 
+  /**
+   * Aceita o estado externo sem perder uma edição local. Um rascunho sujo
+   * ganha nova identidade antes da reindexação; depois essa cópia é reaberta.
+   */
+  const reloadExternalChanges = useCallback(async () => {
+    if (vaultSyncRef.current) return;
+    vaultSyncRef.current = true;
+    setSyncingVault(true);
+    window.clearTimeout(autosaveRef.current);
+
+    try {
+      let targetId = currentNoteRef.current?.id ?? null;
+      let preserved: Note | null = null;
+      const source = draftRef.current;
+
+      // `dirty` é a autoridade aqui: apagar todo o conteúdo também é uma
+      // edição legítima e precisa sobreviver, embora o resultado pareça vazio.
+      if (dirtyRef.current) {
+        preserved = preservedDraftCopyRef.current;
+        if (!preserved) {
+          const now = new Date().toISOString();
+          preserved = createNoteRecord({
+            ...source,
+            id: createId(),
+            title: `${source.title.trim() || "Sem título"} (cópia local)`,
+            status: "draft",
+            createdAt: now,
+            updatedAt: now
+          });
+          await vaultRepository.save(preserved);
+          preservedDraftCopyRef.current = preserved;
+          enqueueNoteIndexing(preserved);
+        }
+        targetId = preserved.id;
+      }
+
+      const report = await vaultRepository.reconcileIndexWithVault();
+      const all = (await vaultRepository.list()).map(toListNote);
+      const restored = targetId ? await vaultRepository.read(targetId) : null;
+
+      setNotes(all);
+      revisionRef.current = 0;
+      setDirty(false);
+      if (restored) {
+        setCurrentNote(restored);
+        currentNoteRef.current = restored;
+        createdInSessionRef.current = false;
+        setDraft({
+          ...restored,
+          title: restored.title === "Sem título" ? "" : restored.title
+        });
+        writeSessionDraftId(restored.id);
+        document.title = `${restored.title} · Hyperzettel`;
+        setLoadToken((token) => token + 1);
+      } else if (targetId) {
+        const fresh = emptyDraft();
+        setCurrentNote(null);
+        currentNoteRef.current = null;
+        createdInSessionRef.current = true;
+        setDraft(fresh);
+        writeSessionDraftId(fresh.id);
+        document.title = "Novo Zettel · Hyperzettel";
+        setLoadToken((token) => token + 1);
+      }
+
+      externalVaultChangeRef.current = false;
+      preservedDraftCopyRef.current = null;
+      setExternalVaultChange(false);
+      if (preserved) {
+        announce(`Rascunho preservado como “${preserved.title}”. Vault recarregado.`);
+      } else if (report?.issues.length) {
+        announce(
+          `Vault recarregado; ${report.issues.length} conflito(s) permanecem isolados na Central do Vault.`
+        );
+      } else {
+        announce("Mudanças externas carregadas.");
+      }
+    } catch (error) {
+      console.error(error);
+      externalVaultChangeRef.current = true;
+      setExternalVaultChange(true);
+      announce(vaultErrorMessage(error, "Não foi possível recarregar as mudanças externas."));
+    } finally {
+      vaultSyncRef.current = false;
+      setSyncingVault(false);
+    }
+  }, [announce]);
+
   /** Reabre no editor uma nota que veio do backup, se for a que está aberta. */
   const adoptImported = useCallback((imported: Note[]) => {
     imported.forEach(enqueueNoteIndexing);
@@ -737,6 +850,59 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       cancelled = true;
     };
   }, [announce]);
+
+  // Ao retomar a janela, compara fingerprints sem tocar no índice. Mudanças
+  // limpas são carregadas; com rascunho pendente, o autosave é pausado até a
+  // pessoa preservar a edição como cópia.
+  useEffect(() => {
+    const probe = async () => {
+      if (
+        !readyRef.current ||
+        document.visibilityState === "hidden" ||
+        savingRef.current ||
+        vaultProbeRef.current ||
+        vaultSyncRef.current
+      ) {
+        return;
+      }
+      const now = Date.now();
+      if (now - lastVaultProbeRef.current < 1_000) return;
+      lastVaultProbeRef.current = now;
+      vaultProbeRef.current = true;
+      try {
+        if (!(await vaultRepository.hasExternalChanges())) return;
+        // Uma gravação iniciada depois do probe pode produzir divergência
+        // transitória entre arquivo e índice; não a rotula como edição externa.
+        if (savingRef.current) return;
+        if (dirtyRef.current) {
+          window.clearTimeout(autosaveRef.current);
+          if (!externalVaultChangeRef.current) {
+            externalVaultChangeRef.current = true;
+            setExternalVaultChange(true);
+            announce(
+              "O vault mudou fora do aplicativo. Seu rascunho foi pausado e pode ser preservado como cópia."
+            );
+          }
+          return;
+        }
+        await reloadExternalChanges();
+      } catch (error) {
+        console.error(error);
+        announce(vaultErrorMessage(error, "Não foi possível verificar mudanças no vault."));
+      } finally {
+        vaultProbeRef.current = false;
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") void probe();
+    };
+    window.addEventListener("focus", probe);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("focus", probe);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [announce, reloadExternalChanges]);
 
   // Navegação de voltar/avançar do navegador.
   useEffect(() => {
@@ -842,6 +1008,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       dirty,
       saving,
       ready,
+      externalVaultChange,
+      syncingVault,
       loadToken,
       setScope,
       setQuery,
@@ -866,16 +1034,18 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       removeNote,
       splitNote,
       reload,
+      reloadExternalChanges,
       adoptImported
     }),
     [
       notesWithDraft, notes, draft, currentNote, visibleNotes, processQueue,
       connectionCounts, relations, folderCounts, kindCounts, scope, query,
-      dirty, saving, ready, loadToken, setTitle, setContent, setRecallPrompt, setFolder,
+      dirty, saving, ready, externalVaultChange, syncingVault, loadToken,
+      setTitle, setContent, setRecallPrompt, setFolder,
       setTemplate, setKind, addConnection, toggleConnection, setConnectionReason,
       removeConnection, openNote, newNote, newNoteFromTemplate, startGuidedTopic, saveNow,
       persistDraft, deleteActiveNote, patchNote, removeNote, splitNote,
-      reload, adoptImported
+      reload, reloadExternalChanges, adoptImported
     ]
   );
 

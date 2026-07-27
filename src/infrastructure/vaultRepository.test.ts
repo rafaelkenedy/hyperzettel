@@ -364,6 +364,24 @@ describe("toIndexRow", () => {
     expect(invokeMock).not.toHaveBeenCalledWith("read_all_note_files", expect.anything());
   });
 
+  test("detecta mudança externa por fingerprint sem reconstruir o índice", async () => {
+    const note = createNoteRecord({ id: "internal-id", title: "Normal" });
+    const indexed = toIndexRow(note, "normal.html", "old-hash");
+    const { vaultRepository } = await import("@/infrastructure/vaultRepository");
+
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "list_notes") return Promise.resolve([indexed]);
+      if (command === "list_note_files") {
+        return Promise.resolve([{ fileName: "normal.html", contentHash: "new-hash" }]);
+      }
+      return Promise.reject(new Error(`comando inesperado: ${command}`));
+    });
+
+    await expect(vaultRepository.hasExternalChanges()).resolves.toBe(true);
+    expect(invokeMock).not.toHaveBeenCalledWith("read_all_note_files", expect.anything());
+    expect(invokeMock).not.toHaveBeenCalledWith("rebuild_note_index", expect.anything());
+  });
+
   test("reindexa quando o conteúdo muda sem alterar o nome físico", async () => {
     const before = createNoteRecord({ id: "internal-id", title: "Antes" });
     const after = createNoteRecord({ ...before, title: "Depois" });

@@ -27,7 +27,9 @@ import {
   Network,
   PanelLeft,
   PanelRight,
-  Trash2
+  RefreshCw,
+  Trash2,
+  TriangleAlert
 } from "lucide-react";
 
 import { useNotes } from "@/app/providers/NotesProvider";
@@ -274,6 +276,34 @@ export function EditorPane({
         </header>
 
         <FirstCycleCoach />
+
+        {notes.externalVaultChange ? (
+          <div
+            role="status"
+            className="mx-4 mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-[#ecd9ac] bg-[#fff9e9] px-3 py-2.5 text-[#7a5411] sm:mx-6"
+          >
+            <TriangleAlert className="size-4 shrink-0" strokeWidth={1.8} />
+            <div className="min-w-[14rem] flex-1">
+              <p className="text-xs font-semibold">O vault mudou fora do aplicativo</p>
+              <p className="mt-0.5 text-2xs leading-relaxed opacity-80">
+                O autosave foi pausado. Seu conteúdo local será salvo com uma nova identidade antes
+                de carregar a versão do disco.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              className="h-8 shrink-0 gap-1.5 border-[#7a5411] bg-[#7a5411] px-3 text-xs text-white"
+              onClick={() => void notes.reloadExternalChanges()}
+              disabled={notes.syncingVault}
+            >
+              <RefreshCw
+                className={`size-3.5 ${notes.syncingVault ? "animate-spin" : ""}`}
+                strokeWidth={1.8}
+              />
+              {notes.syncingVault ? "Recarregando…" : "Preservar cópia e recarregar"}
+            </Button>
+          </div>
+        ) : null}
 
         <div className="hz-scroll min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto w-full max-w-[46rem] px-6 pb-24 pt-8 sm:px-10 sm:pt-9">
