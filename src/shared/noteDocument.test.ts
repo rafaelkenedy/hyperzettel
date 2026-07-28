@@ -63,6 +63,35 @@ describe("serializeNoteToHtmlDocument / parseHtmlDocumentToNote", () => {
     expect(html).toContain("<style>");
   });
 
+  test("lista conexões no corpo legível sem incorporá-las ao conteúdo da nota", () => {
+    const html = serializeNoteToHtmlDocument(
+      makeNote({
+        connections: [
+          { id: "note-2", reason: "Explica <causa> & efeito." },
+          { id: "note-3", reason: "" }
+        ]
+      })
+    );
+    const parsed = parseHtmlDocumentToNote(html)!;
+
+    expect(html).toContain('<aside class="hz-connections"');
+    expect(html).toContain("Destino: note-2");
+    expect(html).toContain("Explica &lt;causa&gt; &amp; efeito.");
+    expect(html).toContain("Destino: note-3");
+    expect(parsed.connections).toEqual([
+      { id: "note-2", reason: "Explica <causa> & efeito." },
+      { id: "note-3", reason: "" }
+    ]);
+    expect(parsed.content).not.toContain("hz-connections");
+    expect(parsed.content).not.toContain("Explica");
+  });
+
+  test("não renderiza uma seção vazia quando a nota não tem conexões", () => {
+    const html = serializeNoteToHtmlDocument(makeNote({ connections: [] }));
+
+    expect(html).not.toContain('<aside class="hz-connections"');
+  });
+
   test("título com caracteres especiais é escapado e volta íntegro", () => {
     const html = serializeNoteToHtmlDocument(makeNote({ title: 'A <b> & "x"' }));
 

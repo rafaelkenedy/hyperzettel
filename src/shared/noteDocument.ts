@@ -15,6 +15,7 @@
  *     <body>
  *       <h1 class="hz-title">Título</h1>
  *       <article class="hz-prose">…corpo sanitizado…</article>
+ *       <aside class="hz-connections">…conexões legíveis…</aside>
  *     </body>
  *   </html>
  *
@@ -51,6 +52,12 @@ const EMBEDDED_STYLE = `
   .hz-prose table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
   .hz-prose th, .hz-prose td { border: 1px solid rgba(127,127,127,0.4); padding: 0.4rem 0.6rem; text-align: left; }
   .hz-prose hr { border: 0; border-top: 1px solid rgba(127,127,127,0.4); margin: 1.5rem 0; }
+  .hz-connections { margin-top: 2.5rem; padding-top: 1.25rem; border-top: 1px solid rgba(127,127,127,0.4); }
+  .hz-connections h2 { margin: 0 0 0.75rem; font-size: 1rem; }
+  .hz-connections ul { margin: 0; padding-left: 1.25rem; }
+  .hz-connections li + li { margin-top: 0.75rem; }
+  .hz-connection-id { font: 0.8rem/1.4 ui-monospace, monospace; opacity: 0.72; overflow-wrap: anywhere; }
+  .hz-connection-reason { margin: 0.2rem 0 0; }
 `.trim();
 
 function escapeHtml(value: string): string {
@@ -81,8 +88,38 @@ function renderMetaTags(note: Note): string {
   ].join("\n");
 }
 
+/**
+ * Projeção humana das conexões. Ela fica fora de `.hz-prose`, portanto nunca
+ * volta como corpo da nota; os metas no head continuam sendo a fonte canônica.
+ */
+function renderVisibleConnections(note: Note): string {
+  const connections = normalizeConnections(note.connections);
+  if (!connections.length) return "";
+
+  const items = connections
+    .map(
+      (connection) => `      <li>
+        <div class="hz-connection-id">Destino: ${escapeHtml(connection.id)}</div>${
+          connection.reason
+            ? `
+        <p class="hz-connection-reason">${escapeHtml(connection.reason)}</p>`
+            : ""
+        }
+      </li>`
+    )
+    .join("\n");
+
+  return `
+    <aside class="hz-connections" aria-labelledby="hz-connections-title">
+      <h2 id="hz-connections-title">Conexões</h2>
+      <ul>
+${items}
+      </ul>
+    </aside>`;
+}
+
 /** Monta o envelope do documento a partir das partes já preparadas/escapadas. */
-function renderDocument(head: string, title: string, body: string): string {
+function renderDocument(head: string, title: string, body: string, connections: string): string {
   return `<!doctype html>
 <html lang="pt-BR">
   <head>
@@ -97,6 +134,7 @@ ${EMBEDDED_STYLE}
   <body>
     <h1 class="hz-title">${title}</h1>
     <article class="hz-prose">${body}</article>
+${connections}
   </body>
 </html>
 `;
@@ -112,7 +150,8 @@ export function serializeNoteToHtmlDocument(note: Note): string {
   return renderDocument(
     renderMetaTags(note),
     escapeHtml(note.title),
-    sanitizeNoteContent(note.content)
+    sanitizeNoteContent(note.content),
+    renderVisibleConnections(note)
   );
 }
 

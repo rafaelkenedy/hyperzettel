@@ -8,6 +8,7 @@ segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 
 ### Added
 
+- Os arquivos HTML standalone passam a exibir uma seção **Conexões** com o ID de destino e o motivo, derivada dos metadados canônicos e excluída do conteúdo editável no round-trip.
 - Adiciona o modelo **Nota de estudo**, com estrutura atômica para aula ou leitura e uma pergunta de recuperação pronta para o ciclo de revisão ativa.
 - A Central do Vault passa a mostrar o estado do backup e recomendar uma exportação semanal; o menu global sinaliza discretamente quando o primeiro backup ou uma atualização está pendente.
 - O backup JSON v3 passa a preservar e restaurar também as decisões de rejeitar relações semânticas, com validação e importação transacional; backups v1 e v2 continuam compatíveis.

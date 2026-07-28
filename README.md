@@ -101,6 +101,11 @@ identidade podem ser adotados e grupos duplicados podem ser separados sem
 excluir conteúdo: um arquivo conserva o ID original e as demais cópias recebem
 novas identidades.
 
+Ao abrir uma nota diretamente no navegador, uma seção **Conexões** lista o ID
+de cada destino e o motivo registrado. Essa seção é uma apresentação derivada:
+os metadados `hz:connection` continuam sendo a fonte canônica e não entram no
+corpo editável da nota.
+
 Na aplicação Tauri, o frontend sincroniza as notas salvas com um serviço Rust. O serviço valida e carrega o EmbeddingGemma Q4 empacotado, gera embeddings localmente e grava o resultado em `hyperzettel.sqlite`. A configuração atual considera similaridade mínima de `0,68` e mantém até cinco relações automáticas por nota. A interface permite rejeitar, restaurar, pausar, continuar ou tentar novamente essa análise.
 
 O mapa de conhecimento combina conexões, estimativa de retenção e uma fila de revisão. A média e a curva de retenção consideram somente notas concluídas e revisáveis; capturas e rascunhos permanecem visíveis no grafo. A fila contém apenas notas vencidas e funciona como uma sessão finita: abre a primeira, avança após cada avaliação e mostra o progresso até a conclusão. O atalho de uma nota abre uma prática avulsa somente para ela, mesmo antes do vencimento, sem adicioná-la à fila automática. Cada nota pode definir uma pergunta de recuperação própria; sem ela, o título vira a pista. A resposta e os graus de lembrança aparecem somente depois da revelação. O agendamento usa SM-2 para recalcular o próximo intervalo. A exportação JSON reúne notas, imagens, esse histórico de aprendizagem e as decisões de rejeitar sugestões semânticas.

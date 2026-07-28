@@ -13,7 +13,7 @@ The owner has decided to move to **files on disk as the source of truth**, with 
 1. **One self-contained `.html` file per note**, stored in a **vault** folder on disk. The file is a complete HTML document (`<!doctype html>` + `<head>` + `<body>`).
 2. **Images are embedded inline as base64 data URIs** (WebP), so each note is a single portable file. The IndexedDB `images` store and the `data-image-id` hydration path are removed.
 3. **Metadata lives in `<meta>` tags** in `<head>`: `hz:id`, `hz:folder`, `hz:kind`, `hz:template`, `hz:status`, `hz:createdAt`, `hz:updatedAt`; **connections** as repeated `<meta name="hz:connection" content="<targetId>|<reason>">`.
-4. **Body is the sanitized note HTML**, with the allowlist **expanded (minimal)**: add `TABLE, THEAD, TBODY, TR, TH, TD, CAPTION`, `H4, H5, H6`, `HR`. A minimal embedded `<style>` in the envelope gives standalone files reasonable rendering.
+4. **Body is the sanitized note HTML**, with the allowlist **expanded (minimal)**: add `TABLE, THEAD, TBODY, TR, TH, TD, CAPTION`, `H4, H5, H6`, `HR`. A minimal embedded `<style>` in the envelope gives standalone files reasonable rendering. A derived `<aside class="hz-connections">` after the article lists target IDs and reasons for manual reading; it is regenerated from the canonical metadata and is never parsed as note content.
 5. **Native SQLite becomes the mandatory operational store.** Note metadata,
    FTS over plain text, connections, the semantic mirror, embeddings, and
    automatic relations are projections rebuildable from the vault. Retention
@@ -84,6 +84,9 @@ Security boundaries, abuse cases, and residual risks are maintained in the
   reading or parsing them. The original file remains visible in the vault and
   the Central do Vault explains how to recover it.
 - **`<meta>` for connections** is slightly awkward (repeated tags) but keeps everything in one file; the SQLite index is the queryable form.
+- **Connections remain readable outside the app.** The standalone HTML renders a
+  derived list with target ID and reason. Keeping it outside `.hz-prose` avoids
+  duplicating presentation into the editable body during round-trip.
 - **External-write conflicts fail closed.** The application does not overwrite a file whose hash changed since it was indexed; the in-memory draft remains dirty and the user is told to reconcile the vault.
 - **Window resume is a synchronization boundary.** Focus/visibility compares
   physical fingerprints without mutation. A clean session reloads
