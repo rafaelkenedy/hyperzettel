@@ -101,6 +101,12 @@ os mesmos privilégios.
 ### SQLite e recuperação
 
 - Atualizações da projeção de uma nota usam transação.
+- A seção legível de conexões inclui backlinks derivados de outras notas e um
+  link para o arquivo delas. Título e nome físico são escapados na serialização;
+  o `href` aponta apenas para um nome simples dentro do próprio vault. A
+  atualização em lote é explícita e reescreve um arquivo por vez, com a mesma
+  verificação de hash das demais gravações: um arquivo divergente é pulado, não
+  sobrescrito.
 - Divergência de nome ou hash provoca reconciliação.
 - Metadados, FTS, embeddings e relações automáticas podem ser refeitos.
 - O backup v3 inclui histórico de revisão e rejeições semânticas, que não são

@@ -336,8 +336,18 @@ export function countUniqueConnections(notes: Note[]): number {
 
 export type RelationDirection = "mutual" | "outgoing" | "incoming";
 
-export interface Relation {
-  note: Note;
+/**
+ * O mínimo para descobrir relações: identidade, rótulo e as conexões de saída.
+ * A linha do índice satisfaz esse contrato sem carregar o HTML da nota.
+ */
+export interface Connectable {
+  id: string;
+  title: string;
+  connections: Connection[];
+}
+
+export interface Relation<T extends Connectable = Note> {
+  note: T;
   direction: RelationDirection;
   /** Motivo que esta nota registrou. Vazio quando só a outra declarou. */
   reason: string;
@@ -359,7 +369,7 @@ const DIRECTION_ORDER: Record<RelationDirection, number> = {
  * nota aparecer duas vezes sempre que as duas pontas se declaravam, que é a
  * maioria dos casos. A direção vira um detalhe da relação, não dois blocos.
  */
-export function findRelations(notes: Note[], noteId: string): Relation[] {
+export function findRelations<T extends Connectable>(notes: T[], noteId: string): Relation<T>[] {
   const source = notes.find((note) => note.id === noteId);
   const outgoing = new Map(
     normalizeConnections(source?.connections).map((item) => [item.id, item.reason])
@@ -388,7 +398,7 @@ export function findRelations(notes: Note[], noteId: string): Relation[] {
         incomingReason: incoming?.reason ?? ""
       };
     })
-    .filter((item): item is Relation => item !== null)
+    .filter((item): item is Relation<T> => item !== null)
     .sort(
       (left, right) =>
         DIRECTION_ORDER[left.direction] - DIRECTION_ORDER[right.direction] ||

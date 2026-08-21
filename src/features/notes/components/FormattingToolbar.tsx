@@ -12,12 +12,14 @@ import {
   AlignLeft,
   AlignRight,
   Bold,
+  Code,
   Heading1,
   Heading2,
   Heading3,
   Heading4,
   Heading5,
   Heading6,
+  Highlighter,
   ImagePlus,
   Italic,
   Link as LinkIcon,
@@ -32,6 +34,7 @@ import {
 } from "lucide-react";
 
 import { IconAction } from "./IconAction";
+import { CODE_LANGUAGES, PLAIN_LANGUAGE } from "../codeSyntax";
 
 /** Tabela inicial 2 colunas × cabeçalho + 1 linha; o `<p>` final dá onde
  *  continuar escrevendo depois dela. As tags passam pela allowlist. */
@@ -42,11 +45,26 @@ const STARTER_TABLE =
 export function FormattingToolbar({
   onCommand,
   onInsertLink,
-  onInsertImage
+  onInsertImage,
+  onToggleCodeBlock,
+  onToggleHighlight,
+  onCodeLanguageChange,
+  codeLanguage = PLAIN_LANGUAGE,
+  codeBlockActive = false,
+  highlightActive = false
 }: {
   onCommand: (command: string, value?: string) => void;
   onInsertLink: () => void;
   onInsertImage: () => void;
+  onToggleCodeBlock: () => void;
+  onToggleHighlight: () => void;
+  onCodeLanguageChange: (language: string) => void;
+  /** Linguagem do bloco onde o caret está. */
+  codeLanguage?: string;
+  /** O caret está dentro de um bloco: o botão volta a ser "sair do bloco". */
+  codeBlockActive?: boolean;
+  /** A seleção já está destacada: o botão volta a ser "remover destaque". */
+  highlightActive?: boolean;
 }) {
   const divider = <Separator orientation="vertical" className="mx-1 h-4 bg-border-primary" />;
 
@@ -68,6 +86,12 @@ export function FormattingToolbar({
         label="Tachado"
         onClick={() => onCommand("strikeThrough")}
       />
+      <IconAction
+        icon={Highlighter}
+        label={highlightActive ? "Remover destaque" : "Destacar"}
+        onClick={onToggleHighlight}
+        active={highlightActive}
+      />
       {divider}
       <IconAction
         icon={Quote}
@@ -79,6 +103,12 @@ export function FormattingToolbar({
         icon={ListOrdered}
         label="Lista numerada"
         onClick={() => onCommand("insertOrderedList")}
+      />
+      <IconAction
+        icon={Code}
+        label={codeBlockActive ? "Sair do bloco de código" : "Bloco de código"}
+        onClick={onToggleCodeBlock}
+        active={codeBlockActive}
       />
       <IconAction
         icon={TableIcon}
@@ -105,6 +135,26 @@ export function FormattingToolbar({
       {divider}
       <IconAction icon={LinkIcon} label="Inserir link" onClick={onInsertLink} />
       <IconAction icon={ImagePlus} label="Inserir imagem" onClick={onInsertImage} />
+
+      {/* A escolha da linguagem só existe com o caret dentro de um bloco: fora
+          dele não haveria a que aplicar. */}
+      {codeBlockActive ? (
+        <>
+          {divider}
+          <select
+            aria-label="Linguagem do bloco de código"
+            value={codeLanguage}
+            onChange={(event) => onCodeLanguageChange(event.target.value)}
+            className="h-8 rounded-md border border-border-primary bg-background-primary px-1.5 text-2xs text-text-secondary outline-none focus-visible:ring-2 focus-visible:ring-hz-accent"
+          >
+            {CODE_LANGUAGES.map((language) => (
+              <option key={language.id} value={language.id}>
+                {language.label}
+              </option>
+            ))}
+          </select>
+        </>
+      ) : null}
     </div>
   );
 }

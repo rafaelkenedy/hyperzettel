@@ -8,6 +8,7 @@ import { createNoteRecord } from "@/domain/notes";
 import {
   inspectVaultDocuments,
   MAX_NOTE_DOCUMENT_BYTES,
+  relatedNoteViews,
   toIndexRow
 } from "@/infrastructure/vaultRepository";
 import {
@@ -670,6 +671,218 @@ describe("toIndexRow", () => {
       }),
       expectedHash: "hash-before",
       html: expect.stringContaining(`<meta name="hz:id" content="${adopted.id}">`)
+    });
+  });
+});
+
+describe("relatedNoteViews", () => {
+  const alpha = createNoteRecord({
+    id: "alpha",
+    title: "Alpha",
+    connections: [{ id: "beta", reason: "porque X" }]
+  });
+  const beta = createNoteRecord({ id: "beta", title: "Beta" });
+  const gama = createNoteRecord({
+    id: "gama",
+    title: "Gama",
+    connections: [{ id: "beta", reason: "porque Y" }]
+  });
+
+  const rows = [
+    toIndexRow(alpha, "alpha.html"),
+    toIndexRow(beta, "beta.html"),
+    toIndexRow(gama, "gama.html")
+  ];
+
+  test("descobre o backlink que só existe na conexão da outra nota", () => {
+    const views = relatedNoteViews(beta, rows);
+
+    expect(views).toEqual([
+      {
+        id: "alpha",
+        title: "Alpha",
+        fileName: "alpha.html",
+        direction: "incoming",
+        reason: "",
+        incomingReason: "porque X"
+      },
+      {
+        id: "gama",
+        title: "Gama",
+        fileName: "gama.html",
+        direction: "incoming",
+        reason: "",
+        incomingReason: "porque Y"
+      }
+    ]);
+  });
+
+  test("marca como mútua a relação declarada dos dois lados", () => {
+    const mutuo = createNoteRecord({
+      ...beta,
+      connections: [{ id: "alpha", reason: "de volta" }]
+    });
+
+    expect(relatedNoteViews(mutuo, rows)).toContainEqual(
+      expect.objectContaining({
+        id: "alpha",
+        direction: "mutual",
+        reason: "de volta",
+        incomingReason: "porque X"
+      })
+    );
+  });
+
+  test("usa o nome físico do índice, não o derivado do título", () => {
+    const renomeada = [toIndexRow(alpha, "nome-escolhido-a-mao.html"), rows[1]];
+
+    expect(relatedNoteViews(beta, renomeada)[0].fileName).toBe(
+      "nome-escolhido-a-mao.html"
+    );
+  });
+
+  test("deixa o arquivo vazio quando o alvo não está no índice", () => {
+    const orfa = createNoteRecord({
+      id: "orfa",
+      title: "Órfã",
+      connections: [{ id: "sumiu", reason: "" }]
+    });
+
+    expect(relatedNoteViews(orfa, [])).toEqual([]);
+  });
+});
+
+describe("save com backlinks", () => {
+  test("grava no arquivo quem cita a nota, com âncora para o arquivo", async () => {
+    const alpha = createNoteRecord({
+      id: "alpha",
+      title: "Alpha",
+      connections: [{ id: "beta", reason: "porque X" }]
+    });
+    const beta = createNoteRecord({ id: "beta", title: "Beta" });
+    const { vaultRepository } = await import("@/infrastructure/vaultRepository");
+
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "list_notes") {
+        return Promise.resolve([
+          toIndexRow(alpha, "alpha.html"),
+          toIndexRow(beta, "beta.html")
+        ]);
+      }
+      if (command === "save_note") return Promise.resolve();
+      return Promise.reject(new Error(`comando inesperado: ${command}`));
+    });
+
+    await vaultRepository.save(beta);
+
+    const [, payload] = invokeMock.mock.calls.find(([command]) => command === "save_note")!;
+    expect(payload.html).toContain("<h3>Citada por</h3>");
+    expect(payload.html).toContain('<a href="alpha.html" title="alpha">Alpha</a>');
+    expect(payload.html).toContain('<p class="hz-connection-reason">porque X</p>');
+    // O backlink é apresentação: o head continua registrando só a saída.
+    expect(payload.html).not.toContain('name="hz:connection"');
+  });
+
+  test("salva mesmo quando o índice não responde, sem o backlink", async () => {
+    const beta = createNoteRecord({ id: "beta", title: "Beta" });
+    const { vaultRepository } = await import("@/infrastructure/vaultRepository");
+
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "list_notes") return Promise.reject(new Error("índice fora"));
+      if (command === "save_note") return Promise.resolve();
+      return Promise.reject(new Error(`comando inesperado: ${command}`));
+    });
+
+    await expect(vaultRepository.save(beta)).resolves.toBeUndefined();
+  });
+});
+
+describe("refreshConnectionProjections", () => {
+  const alpha = createNoteRecord({
+    id: "alpha",
+    title: "Alpha",
+    connections: [{ id: "beta", reason: "porque X" }]
+  });
+  const beta = createNoteRecord({ id: "beta", title: "Beta" });
+
+  test("reescreve só o arquivo cuja projeção está desatualizada", async () => {
+    const { vaultRepository } = await import("@/infrastructure/vaultRepository");
+    const rows = [toIndexRow(alpha, "alpha.html"), toIndexRow(beta, "beta.html")];
+    // Alpha já foi salva com o contexto; Beta ainda não conhece o backlink.
+    const stored = new Map([
+      ["alpha", serializeNoteToHtmlDocument(alpha, relatedNoteViews(alpha, rows))],
+      ["beta", serializeNoteToHtmlDocument(beta)]
+    ]);
+    const written: string[] = [];
+
+    invokeMock.mockImplementation((command: string, payload?: any) => {
+      if (command === "list_notes") return Promise.resolve(rows);
+      if (command === "read_note") return Promise.resolve(stored.get(payload.id));
+      if (command === "save_note") {
+        written.push(payload.row.id);
+        return Promise.resolve();
+      }
+      return Promise.reject(new Error(`comando inesperado: ${command}`));
+    });
+
+    await expect(vaultRepository.refreshConnectionProjections()).resolves.toEqual({
+      updated: 1,
+      current: 1,
+      skipped: 0
+    });
+    expect(written).toEqual(["beta"]);
+  });
+
+  test("preserva o nome físico do arquivo ao reescrever", async () => {
+    const { vaultRepository } = await import("@/infrastructure/vaultRepository");
+    const rows = [
+      toIndexRow(alpha, "alpha.html"),
+      toIndexRow(beta, "nome-a-mao.html")
+    ];
+    let savedRow: any = null;
+
+    invokeMock.mockImplementation((command: string, payload?: any) => {
+      if (command === "list_notes") return Promise.resolve(rows);
+      if (command === "read_note") {
+        return Promise.resolve(
+          payload.id === "beta"
+            ? serializeNoteToHtmlDocument(beta)
+            : serializeNoteToHtmlDocument(alpha, relatedNoteViews(alpha, rows))
+        );
+      }
+      if (command === "save_note") {
+        savedRow = payload.row;
+        return Promise.resolve();
+      }
+      return Promise.reject(new Error(`comando inesperado: ${command}`));
+    });
+
+    await vaultRepository.refreshConnectionProjections();
+
+    expect(savedRow.fileName).toBe("nome-a-mao.html");
+  });
+
+  test("um arquivo em conflito é contado e não interrompe a varredura", async () => {
+    const { vaultRepository } = await import("@/infrastructure/vaultRepository");
+    const rows = [toIndexRow(alpha, "alpha.html"), toIndexRow(beta, "beta.html")];
+
+    invokeMock.mockImplementation((command: string, payload?: any) => {
+      if (command === "list_notes") return Promise.resolve(rows);
+      if (command === "read_note") return Promise.resolve(serializeNoteToHtmlDocument(beta));
+      if (command === "save_note") {
+        // Alpha falha fechada, como qualquer gravação sobre arquivo divergente.
+        if (payload.row.id === "alpha") {
+          return Promise.reject({ code: "vault_external_change" });
+        }
+        return Promise.resolve();
+      }
+      return Promise.reject(new Error(`comando inesperado: ${command}`));
+    });
+
+    await expect(vaultRepository.refreshConnectionProjections()).resolves.toEqual({
+      updated: 1,
+      current: 0,
+      skipped: 1
     });
   });
 });

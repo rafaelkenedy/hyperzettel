@@ -124,6 +124,12 @@ describe("sanitizeNoteContent", () => {
       expect(sanitizeNoteContent("<hr>")).toContain("<hr>");
     });
 
+    test("mantém o destaque como <mark>", () => {
+      expect(sanitizeNoteContent("<p>uma <mark>ideia</mark></p>")).toBe(
+        "<p>uma <mark>ideia</mark></p>"
+      );
+    });
+
     test("descarta atributos das novas tags", () => {
       expect(sanitizeNoteContent('<td style="x" colspan="2">c</td>')).toBe("<td>c</td>");
     });

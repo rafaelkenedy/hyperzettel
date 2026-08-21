@@ -8,16 +8,21 @@ segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 
 ### Added
 
-- Os arquivos HTML standalone passam a exibir uma seção **Conexões** com o ID de destino e o motivo, derivada dos metadados canônicos e excluída do conteúdo editável no round-trip.
+- Os arquivos HTML standalone passam a exibir uma seção **Conexões** derivada, com direção da relação, título e link para a outra nota, motivos registrados nas duas pontas e ID como fallback. Os metadados `hz:connection` continuam sendo a fonte canônica das conexões de saída, e a apresentação permanece fora do conteúdo editável no round-trip.
 - Adiciona o modelo **Nota de estudo**, com estrutura atômica para aula ou leitura e uma pergunta de recuperação pronta para o ciclo de revisão ativa.
 - A Central do Vault passa a mostrar o estado do backup e recomendar uma exportação semanal; o menu global sinaliza discretamente quando o primeiro backup ou uma atualização está pendente.
 - O backup JSON v3 passa a preservar e restaurar também as decisões de rejeitar relações semânticas, com validação e importação transacional; backups v1 e v2 continuam compatíveis.
 - Primeiro ciclo guiado para vaults vazios: o usuário informa um assunto real e recebe uma nota de estrutura pronta para desenvolver perguntas, ideias e conexões.
 - Orientação contextual repete captura, processamento e conexão até formar um primeiro conjunto com três ideias permanentes ligadas ao mapa.
 - Notas de estrutura exibem uma seção derivada com as ideias conectadas e seus motivos, permitindo navegar pelo conjunto sem duplicar conteúdo entre arquivos.
+- Destaque de texto na barra de formatação, persistido como `<mark>` no HTML da nota: o mesmo botão remove o destaque coberto pela seleção e uma seleção entre parágrafos gera uma marca por bloco.
+- A Central do Vault ganha **Atualizar conexões**, que reescreve a seção de conexões de todos os arquivos desatualizados; arquivos alterados por fora são contados e pulados, sem interromper a varredura.
+- Coloração de sintaxe nos blocos de código, com linguagem escolhida por bloco e 17 linguagens registradas. A cor é persistida no HTML da nota, então o arquivo avulso também abre colorido; o bloco é recolorido após uma pausa na digitação, preservando a posição do cursor.
+- Bloco de código na barra de formatação: converte a seleção em `<pre><code>`, preserva quebras de linha ao colar, quebra linha com Enter e sai do bloco com um segundo Enter na linha vazia. O mesmo botão desfaz o bloco em parágrafos.
 
 ### Changed
 
+- O corpo dos arquivos HTML passa a ser gravado com um bloco por linha, reduzindo ruído em diffs e sincronização; o CSS standalone é incluído por recurso usado, evitando reescrever notas sem código, tabelas, imagens ou conexões quando esses estilos mudam.
 - A navegação passa a revelar processamento, pastas, estágios, mapa e revisão apenas quando o conteúdo do vault torna cada recurso útil.
 - Autosave e maturidade deixam de competir na interface: conteúdo pendente é identificado como “Autosave pendente”, enquanto a ação principal passa a ser “Concluir nota” e o estado final, “Nota pronta”.
 - Revisões agora exigem uma tentativa de recuperação antes de revelar o conteúdo e habilitar a avaliação; o atalho do editor abre esse fluxo em vez de registrar “lembrei bem” implicitamente.
@@ -26,6 +31,8 @@ segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e
 
 ### Fixed
 
+- Menus e diálogos aninhados não deixam mais o aplicativo sem responder a cliques depois de fechados: as camadas e guardas de foco do Radix passam a compartilhar uma única instância, o `Escape` fica com o overlay superior e os botões de fechar permanecem dentro de cada painel.
+- O motivo de uma conexão volta a aceitar espaço enquanto é digitado no painel: o campo era controlado pelo valor já normalizado, que apara as pontas e apagava a tecla no render seguinte.
 - A revisão iniciada pelo editor ou pelas propriedades agora espera a versão visível ser persistida; falha ou conflito mantém a pessoa no editor em vez de revisar conteúdo desatualizado.
 - O cartão “Conexões” da tela inicial agora conta cada relação válida e não direcionada uma única vez, sem duplicar links recíprocos nem incluir auto-referências ou destinos ausentes.
 - Depois que o primeiro ciclo é concluído, revisões vencidas e caixa de entrada voltam a ter prioridade no foco da tela inicial; a celebração permanece apenas quando não há trabalho recorrente pendente.

@@ -63,6 +63,7 @@ Desktop.ini
 # Metadados locais de agentes
 /.codex/
 /.agents/
+/.claude/
 /AGENTS.local.md
 
 # Relatórios de auditoria
@@ -70,3 +71,4 @@ Desktop.ini
 /docs/adr/*
 # O ADR 0006 virou contrato versionado da persistência; os demais seguem locais.
 !/docs/adr/0006-html-per-note-persistence.md
+/.benchmark-vault/

@@ -40,6 +40,20 @@ import { useBackup } from "@/app/useBackup";
 import { findTemplate, noteCompletionReadiness } from "@/domain/templates";
 import { FormattingToolbar } from "./FormattingToolbar";
 import { IconAction } from "./IconAction";
+import {
+  activeCodeBlock,
+  handleCodeBlockKeyDown,
+  insertTextInCodeBlock,
+  toggleCodeBlock
+} from "../codeBlock";
+import { isHighlightActive, toggleHighlight } from "../highlight";
+import {
+  PLAIN_LANGUAGE,
+  highlightCodeBlocks,
+  languageOf,
+  setCodeLanguage
+} from "../codeSyntax";
+import { activeRange } from "../editorSelection";
 import { optimizeImageToDataUrl } from "@/infrastructure/imageOptimizer";
 import { formatShortcut } from "@/shared/platform";
 import { toPlainText } from "@/shared/html";
@@ -70,6 +84,14 @@ export function EditorPane({
   const imageInputRef = useRef<HTMLInputElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [codeBlockActive, setCodeBlockActive] = useState(false);
+  const [highlightActive, setHighlightActive] = useState(false);
+  const [codeLanguage, setCodeLanguage_] = useState(PLAIN_LANGUAGE);
+  // O `<select>` da barra tira o foco do editor; a referência ao bloco ativo
+  // sobrevive a isso, a seleção do documento não.
+  const activePreRef = useRef<HTMLPreElement | null>(null);
+  const recolorTimer = useRef<number | undefined>(undefined);
+  const composing = useRef(false);
 
   const updateEmptyState = useCallback(() => {
     const editor = editorRef.current;
@@ -89,6 +111,10 @@ export function EditorPane({
     if (!editor) return;
     editor.innerHTML = notes.draft.content || "";
     updateEmptyState();
+    // Notas escritas antes da coloração ganham cor ao abrir. O resultado não
+    // volta para o store: colorir não é uma edição da pessoa e não deve sujar
+    // o rascunho nem disparar autosave.
+    highlightCodeBlocks(editor);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notes.loadToken]);
 
@@ -117,10 +143,28 @@ export function EditorPane({
     title.style.height = `${title.scrollHeight}px`;
   }, [notes.draft.title]);
 
+  /**
+   * Recolore os blocos depois de uma pausa na digitação.
+   *
+   * Colorir a cada tecla reescreveria o DOM sob o caret sem necessidade; a
+   * pausa também evita recolorir um token que ainda está sendo escrito.
+   */
+  const scheduleRecolor = useCallback(() => {
+    window.clearTimeout(recolorTimer.current);
+    recolorTimer.current = window.setTimeout(() => {
+      const editor = editorRef.current;
+      if (!editor || composing.current) return;
+      if (highlightCodeBlocks(editor)) notes.setContent(serialize());
+    }, 350);
+  }, [notes, serialize]);
+
+  useEffect(() => () => window.clearTimeout(recolorTimer.current), []);
+
   const handleInput = useCallback(() => {
     updateEmptyState();
     notes.setContent(serialize());
-  }, [notes, serialize, updateEmptyState]);
+    scheduleRecolor();
+  }, [notes, scheduleRecolor, serialize, updateEmptyState]);
 
   const runCommand = useCallback(
     (command: string, value?: string) => {
@@ -130,6 +174,53 @@ export function EditorPane({
     },
     [handleInput]
   );
+
+  const runCodeBlock = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    editor.focus();
+    toggleCodeBlock(editor);
+    handleInput();
+  }, [handleInput]);
+
+  const runHighlight = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    editor.focus();
+    toggleHighlight(editor);
+    handleInput();
+  }, [handleInput]);
+
+  const changeCodeLanguage = useCallback(
+    (language: string) => {
+      const pre = activePreRef.current;
+      const editor = editorRef.current;
+      if (!pre || !editor || !editor.contains(pre)) return;
+      setCodeLanguage(pre, language);
+      setCodeLanguage_(languageOf(pre));
+      handleInput();
+    },
+    [handleInput]
+  );
+
+  // Os botões alternáveis refletem onde a seleção está, e ela muda por clique,
+  // seta ou digitação — `selectionchange` é o único evento que cobre os três.
+  useEffect(() => {
+    const syncSelectionState = () => {
+      const editor = editorRef.current;
+      // Seleção fora do corpo (barra, título, outro painel): preserva o último
+      // estado conhecido, senão o seletor de linguagem sumiria ao ser usado.
+      if (!editor || !activeRange(editor)) return;
+
+      const pre = activeCodeBlock(editor);
+      activePreRef.current = pre;
+      setCodeBlockActive(Boolean(pre));
+      setCodeLanguage_(pre ? languageOf(pre) : PLAIN_LANGUAGE);
+      setHighlightActive(isHighlightActive(editor));
+    };
+    document.addEventListener("selectionchange", syncSelectionState);
+    return () => document.removeEventListener("selectionchange", syncSelectionState);
+  }, []);
 
   const insertLink = useCallback(() => {
     const raw = window.prompt("Cole ou digite o endereço do link:", "https://")?.trim();
@@ -343,6 +434,12 @@ export function EditorPane({
               onCommand={runCommand}
               onInsertLink={insertLink}
               onInsertImage={() => imageInputRef.current?.click()}
+              onToggleCodeBlock={runCodeBlock}
+              onToggleHighlight={runHighlight}
+              onCodeLanguageChange={changeCodeLanguage}
+              codeLanguage={codeLanguage}
+              codeBlockActive={codeBlockActive}
+              highlightActive={highlightActive}
             />
 
             <div
@@ -354,10 +451,35 @@ export function EditorPane({
               aria-label="Conteúdo da nota"
               data-placeholder="Comece a escrever. Conecte esta nota a outras pelo painel à direita."
               onInput={handleInput}
+              // Recolorir no meio de uma composição (IME, acentos) cancelaria
+              // o texto ainda não confirmado.
+              onCompositionStart={() => {
+                composing.current = true;
+              }}
+              onCompositionEnd={() => {
+                composing.current = false;
+                scheduleRecolor();
+              }}
+              onKeyDown={(event) => {
+                // Dentro de um bloco de código, Enter quebra a linha em vez de
+                // encerrar o bloco; o segundo Enter na linha vazia sai dele.
+                const editor = editorRef.current;
+                if (!editor || !handleCodeBlockKeyDown(event.nativeEvent, editor)) return;
+                event.preventDefault();
+                handleInput();
+              }}
               onPaste={(event) => {
                 // Cola sempre como texto puro, evitando HTML externo no conteúdo.
                 event.preventDefault();
-                document.execCommand("insertText", false, event.clipboardData.getData("text/plain"));
+                const text = event.clipboardData.getData("text/plain");
+                const editor = editorRef.current;
+                // Em um bloco de código o `insertText` do navegador quebraria o
+                // `<pre>` em `<div>`s; a inserção manual preserva as linhas.
+                if (editor && insertTextInCodeBlock(editor, text)) {
+                  handleInput();
+                  return;
+                }
+                document.execCommand("insertText", false, text);
               }}
               className="hz-prose min-h-[24rem] pb-10"
             />
@@ -390,7 +512,17 @@ export function EditorPane({
         />
 
         <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-          <DialogContent className="max-w-sm rounded-lg border border-border-primary bg-background-primary p-6 shadow-pop">
+          {/*
+           * Confirmação destrutiva não leva X: o rodapé já oferece as duas
+           * saídas explícitas. Um terceiro caminho de fechar só tornaria a
+           * escolha ambígua. Suprimimos o X que o relume põe no overlay.
+           */}
+          <DialogContent
+            closeIconPosition="inside"
+            closeIconClassName="hidden"
+            overlayClassName="bg-black/40"
+            className="max-w-sm rounded-lg border border-border-primary bg-background-primary p-6 shadow-pop"
+          >
             <DialogHeader>
               <DialogTitle className="text-md">Excluir esta nota?</DialogTitle>
               <DialogDescription className="text-xs text-text-tertiary">

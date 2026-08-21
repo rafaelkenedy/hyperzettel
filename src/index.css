@@ -113,16 +113,96 @@
     @apply text-link-primary underline decoration-link-primary/40 underline-offset-2 hover:decoration-link-primary;
   }
 
+  .hz-prose mark {
+    @apply rounded-[3px] bg-hz-highlight px-0.5 text-text-primary;
+  }
+
   .hz-prose blockquote {
     @apply my-5 border-l-2 border-border-tertiary py-1 pl-4 text-text-tertiary;
   }
 
   .hz-prose code {
-    @apply rounded bg-background-tertiary px-1 py-0.5 font-mono text-[0.85em];
+    @apply rounded bg-background-tertiary px-1 py-0.5 font-mono text-[0.9em];
   }
 
+  /* Painel escuro, como um visualizador de código: separa o trecho do texto
+     sem depender de tokens coloridos, que o arquivo da nota não preserva. */
   .hz-prose pre {
-    @apply my-5 overflow-x-auto rounded-lg bg-background-tertiary p-4 font-mono text-xs;
+    @apply my-5 overflow-x-auto rounded-lg bg-hz-code px-4 py-3.5 font-mono
+      text-[13.5px] leading-[1.6] text-hz-code-ink;
+  }
+
+  /* Dentro do bloco o `code` não repete fundo, respiro nem tamanho: quem
+     desenha a caixa é o `pre`. */
+  .hz-prose pre code {
+    @apply block bg-transparent p-0 text-[1em] text-inherit;
+  }
+
+  /*
+   * Tokens do highlight.js sobre o painel escuro. Literais, e não tokens do
+   * Tailwind, porque a mesma paleta precisa existir dentro do `.html` avulso,
+   * que não passa pelo build — mantenha as duas cópias em sincronia
+   * (`EMBEDDED_STYLE` em src/shared/noteDocument.ts).
+   */
+  .hz-prose .hljs-comment,
+  .hz-prose .hljs-quote {
+    color: #8d8478;
+    font-style: italic;
+  }
+
+  .hz-prose .hljs-keyword,
+  .hz-prose .hljs-selector-tag,
+  .hz-prose .hljs-literal,
+  .hz-prose .hljs-section {
+    color: #e0836c;
+  }
+
+  .hz-prose .hljs-string,
+  .hz-prose .hljs-regexp,
+  .hz-prose .hljs-addition,
+  .hz-prose .hljs-meta .hljs-string {
+    color: #9fc98a;
+  }
+
+  .hz-prose .hljs-number,
+  .hz-prose .hljs-symbol,
+  .hz-prose .hljs-bullet,
+  .hz-prose .hljs-template-variable {
+    color: #d7b06a;
+  }
+
+  .hz-prose .hljs-title,
+  .hz-prose .hljs-name,
+  .hz-prose .hljs-selector-id,
+  .hz-prose .hljs-selector-class {
+    color: #86b3e0;
+  }
+
+  .hz-prose .hljs-type,
+  .hz-prose .hljs-built_in,
+  .hz-prose .hljs-class .hljs-title {
+    color: #6fc7c0;
+  }
+
+  .hz-prose .hljs-attr,
+  .hz-prose .hljs-attribute,
+  .hz-prose .hljs-variable,
+  .hz-prose .hljs-property,
+  .hz-prose .hljs-params {
+    color: #c8a6e8;
+  }
+
+  .hz-prose .hljs-meta,
+  .hz-prose .hljs-deletion {
+    color: #a9a29a;
+  }
+
+  .hz-prose .hljs-emphasis {
+    font-style: italic;
+  }
+
+  .hz-prose .hljs-strong {
+    font-weight: 600;
   }
 
   .hz-prose figure {

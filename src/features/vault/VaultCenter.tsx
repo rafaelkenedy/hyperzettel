@@ -12,10 +12,12 @@ import {
   FileDown,
   FilePlus2,
   FolderOpen,
+  Link2,
   LoaderCircle,
   RefreshCw,
   ShieldCheck,
-  TriangleAlert
+  TriangleAlert,
+  X
 } from "lucide-react";
 
 import { useAnnouncer } from "@/app/providers/AnnouncerProvider";
@@ -178,6 +180,38 @@ export function VaultCenter({
     }
   };
 
+  /**
+   * A seção legível de conexões de uma nota inclui quem cita ela, e isso muda
+   * quando *outra* nota é editada. A correção é explícita para não reescrever
+   * arquivos em cascata a cada conexão criada.
+   */
+  const refreshConnections = async () => {
+    setBusy(true);
+    setFeedback("");
+    try {
+      const report = await vaultRepository.refreshConnectionProjections();
+      await refresh();
+      const updated = report.updated
+        ? `${report.updated} ${report.updated === 1 ? "arquivo atualizado" : "arquivos atualizados"}`
+        : "nenhum arquivo precisou mudar";
+      const message = report.skipped
+        ? `Conexões nos arquivos: ${updated}; ${report.skipped} não pôde(puderam) ser reescrito(s) agora.`
+        : `Conexões nos arquivos: ${updated}.`;
+      setFeedback(message);
+      announce(message);
+    } catch (error) {
+      console.error(error);
+      const message = vaultErrorMessage(
+        error,
+        "Não foi possível atualizar as conexões nos arquivos."
+      );
+      setFeedback(message);
+      announce(message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const resolveDuplicate = async (
     issue: VaultIntegrityIssue,
     keeperFileName: string
@@ -227,16 +261,39 @@ export function VaultCenter({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[82vh] !max-w-[48rem] flex-col gap-0 overflow-hidden rounded-xl border border-border-primary bg-background-primary p-0 shadow-pop">
+      {/*
+       * O X do relume mora no overlay por padrão, o que o joga no canto da
+       * tela em vez do canto do card. Suprimimos os dois (o de fora não é
+       * renderizado, o de dentro fica oculto) e usamos um fechar próprio,
+       * na linha do título e na mesma linguagem de ícones do resto do app.
+       */}
+      <DialogContent
+        closeIconPosition="inside"
+        closeIconClassName="hidden"
+        overlayClassName="bg-black/40"
+        className="flex max-h-[82vh] !max-w-[48rem] flex-col gap-0 overflow-hidden rounded-xl border border-border-primary bg-background-primary p-0 shadow-pop"
+      >
         <DialogHeader className="border-b border-border-primary px-6 py-5">
-          <DialogTitle className="flex items-center gap-2 text-md">
-            <Database className="size-4 text-text-secondary" strokeWidth={1.75} />
-            Central do Vault
-          </DialogTitle>
-          <DialogDescription className="text-xs leading-relaxed text-text-tertiary">
-            Seus arquivos HTML são a fonte da verdade. O índice pode ser verificado e
-            reconstruído a partir deles.
-          </DialogDescription>
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0 space-y-1.5">
+              <DialogTitle className="flex items-center gap-2 text-md">
+                <Database className="size-4 text-text-secondary" strokeWidth={1.75} />
+                Central do Vault
+              </DialogTitle>
+              <DialogDescription className="text-xs leading-relaxed text-text-tertiary">
+                Seus arquivos HTML são a fonte da verdade. O índice pode ser verificado e
+                reconstruído a partir deles.
+              </DialogDescription>
+            </div>
+            <button
+              type="button"
+              onClick={() => onOpenChange(false)}
+              aria-label="Fechar"
+              className="-mr-1.5 -mt-1 grid size-7 shrink-0 place-items-center rounded-md text-text-secondary transition-colors hover:bg-hz-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hz-accent"
+            >
+              <X className="size-4" strokeWidth={1.75} />
+            </button>
+          </div>
         </DialogHeader>
 
         <div className="hz-scroll min-h-0 flex-1 overflow-y-auto px-6 py-5">
@@ -351,6 +408,17 @@ export function VaultCenter({
                 >
                   <Database className="size-3.5" strokeWidth={1.8} />
                   Reconstruir índice
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="gap-1.5 border-border-tertiary bg-background-primary text-xs"
+                  onClick={() => void refreshConnections()}
+                  disabled={busy}
+                  title="Reescreve a seção de conexões de cada arquivo, incluindo quem cita a nota."
+                >
+                  <Link2 className="size-3.5" strokeWidth={1.8} />
+                  Atualizar conexões
                 </Button>
               </div>
             </div>

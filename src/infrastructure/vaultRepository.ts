@@ -16,9 +16,17 @@ import {
   adoptHtmlDocumentAsNote,
   noteFileName,
   parseHtmlDocumentToNote,
-  serializeNoteToHtmlDocument
+  serializeNoteToHtmlDocument,
+  type RelatedNoteView
 } from "@/shared/noteDocument";
-import { createId, createNoteRecord, type Connection, type Note } from "@/domain/notes";
+import {
+  createId,
+  createNoteRecord,
+  findRelations,
+  type Connectable,
+  type Connection,
+  type Note
+} from "@/domain/notes";
 
 /** Linha leve do índice (metadados + texto puro + conexões), sem o HTML pesado. */
 export interface NoteIndexRow {
@@ -172,8 +180,52 @@ async function read(id: string): Promise<Note | null> {
  * o SQLite falhou, reconstrói o índice da fonte da verdade e tenta uma única
  * vez. A repetição é segura porque o backend compara hash e identidade.
  */
+/**
+ * As relações da nota do ponto de vista do arquivo dela, incluindo os
+ * backlinks — que só existem nas conexões declaradas por outras notas.
+ *
+ * Puro e exportado para teste. O nome físico vem da linha de índice, e não de
+ * `noteFileName`: um arquivo renomeado por fora conserva o nome que o vault
+ * conhece, e a âncora precisa apontar para o arquivo que existe.
+ */
+export function relatedNoteViews(note: Note, rows: NoteIndexRow[]): RelatedNoteView[] {
+  const fileNames = new Map(rows.map((row) => [row.id, row.fileName]));
+  const others = rows.filter((row) => row.id !== note.id);
+
+  return findRelations<Connectable>([note, ...others], note.id).map((relation) => ({
+    id: relation.note.id,
+    title: relation.note.title,
+    fileName: fileNames.get(relation.note.id) ?? "",
+    direction: relation.direction,
+    reason: relation.reason,
+    incomingReason: relation.incomingReason
+  }));
+}
+
+/**
+ * O índice é o que sabe quem cita esta nota. Uma falha ao lê-lo não pode
+ * impedir o salvamento: sem as linhas, o arquivo é gravado com a projeção
+ * reduzida (só os destinos declarados) e a próxima gravação a completa.
+ */
+async function indexRowsForRelations(): Promise<NoteIndexRow[]> {
+  try {
+    const rows = await list();
+    return Array.isArray(rows) ? rows : [];
+  } catch {
+    return [];
+  }
+}
+
 async function save(note: Note): Promise<void> {
-  const html = serializeNoteToHtmlDocument(note);
+  // O teto por documento é verificado antes de qualquer IPC: uma nota grande
+  // demais não deve nem consultar o índice. `writeNote` repete a verificação
+  // sobre o documento final, que ainda cresce com a projeção das relações.
+  assertDocumentFits(serializeNoteToHtmlDocument(note));
+  return writeNote(note, relatedNoteViews(note, await indexRowsForRelations()));
+}
+
+async function writeNote(note: Note, related: RelatedNoteView[]): Promise<void> {
+  const html = serializeNoteToHtmlDocument(note, related);
   assertDocumentFits(html);
   const payload = {
     row: toIndexRow(note),
@@ -197,9 +249,69 @@ async function save(note: Note): Promise<void> {
 
 /** Grava várias notas (usado ao dividir uma nota em seções). */
 async function saveMany(notes: Note[]): Promise<void> {
+  // As notas do lote ainda não estão no índice; entram como linhas provisórias
+  // para que as conexões entre elas apareçam já na primeira gravação.
+  const rows = [
+    ...notes.map((note) => toIndexRow(note)),
+    ...(await indexRowsForRelations()).filter(
+      (row) => !notes.some((note) => note.id === row.id)
+    )
+  ];
+
   for (const note of notes) {
-    await save(note);
+    await writeNote(note, relatedNoteViews(note, rows));
   }
+}
+
+export interface ConnectionProjectionReport {
+  /** Arquivos reescritos porque a projeção estava desatualizada. */
+  updated: number;
+  /** Arquivos já corretos. */
+  current: number;
+  /** Arquivos que não puderam ser reescritos agora (conflito externo, leitura). */
+  skipped: number;
+}
+
+/**
+ * Reescreve a seção legível de conexões de todo o vault.
+ *
+ * O backlink de uma nota depende do que outras notas declaram, então o arquivo
+ * dela envelhece sem que ninguém a edite. Em vez de reescrever arquivos em
+ * cascata a cada conexão criada — o que multiplicaria escritas e esbarraria no
+ * mesmo conflito externo que a gravação já rejeita —, a correção é explícita e
+ * idempotente: só grava o que está diferente e segue adiante quando um arquivo
+ * não pode ser tocado.
+ */
+async function refreshConnectionProjections(): Promise<ConnectionProjectionReport> {
+  const rows = await list();
+  const report: ConnectionProjectionReport = { updated: 0, current: 0, skipped: 0 };
+
+  for (const row of rows) {
+    try {
+      const currentHtml = await invoke<string>("read_note", { id: row.id });
+      const note = parseHtmlDocumentToNote(currentHtml);
+      if (!note || note.id !== row.id) {
+        report.skipped += 1;
+        continue;
+      }
+
+      const html = serializeNoteToHtmlDocument(note, relatedNoteViews(note, rows));
+      if (html === currentHtml) {
+        report.current += 1;
+        continue;
+      }
+
+      assertDocumentFits(html);
+      await invoke("save_note", { row: toIndexRow(note, row.fileName), html });
+      report.updated += 1;
+    } catch {
+      // Um arquivo alterado por fora falha fechado, como em qualquer gravação.
+      // A varredura continua: um conflito não deve travar o vault inteiro.
+      report.skipped += 1;
+    }
+  }
+
+  return report;
 }
 
 /** Remove a nota do vault e do índice. */
@@ -536,6 +648,7 @@ export const vaultRepository = {
   read,
   save,
   saveMany,
+  refreshConnectionProjections,
   remove,
   readAllDocuments,
   listFileNames,

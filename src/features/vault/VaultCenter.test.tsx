@@ -2,7 +2,14 @@
  * @vitest-environment jsdom
  */
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import type { BackupStatus } from "@/application/backupReminder";
@@ -19,7 +26,8 @@ const mocks = vi.hoisted(() => ({
   resolveDuplicateId: vi.fn(),
   reindexFromVault: vi.fn(),
   openFolder: vi.fn(),
-  exportBackup: vi.fn()
+  exportBackup: vi.fn(),
+  onOpenChange: vi.fn()
 }));
 
 vi.mock("@/app/providers/AnnouncerProvider", () => ({
@@ -74,7 +82,7 @@ function renderVaultCenter(
   return render(
     <VaultCenter
       open
-      onOpenChange={vi.fn()}
+      onOpenChange={mocks.onOpenChange}
       backupStatus={backupStatus}
       backupExporting={false}
       onExportBackup={mocks.exportBackup}
@@ -105,6 +113,35 @@ describe("VaultCenter", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Exportar backup" }));
     expect(mocks.exportBackup).toHaveBeenCalledOnce();
+  });
+
+  test("fecha pelo card, não por um X solto no canto da tela", async () => {
+    renderVaultCenter();
+    await screen.findByText("C:\\dados\\Hyperzettel\\vault");
+
+    const dialog = screen.getByRole("dialog");
+    const fechar = within(dialog).getByRole("button", { name: "Fechar" });
+
+    /*
+     * O relume renderiza o X dentro do Overlay quando `closeIconPosition` é
+     * "outside" (o padrão), e o Overlay cobre a viewport inteira — é assim
+     * que o X ia parar no canto da tela em vez do canto do card.
+     *
+     * A varredura é no DOM, não por role: o Overlay fica fora da árvore de
+     * acessibilidade, então uma consulta por role não enxergaria o botão
+     * perdido lá dentro e o teste passaria com o bug presente.
+     */
+    const botoesForaDoCard = Array.from(
+      document.querySelectorAll("button")
+    ).filter((button) => !dialog.contains(button));
+
+    expect(
+      botoesForaDoCard.map((button) => button.textContent),
+      "todo botão do diálogo precisa morar dentro do card, não no overlay"
+    ).toEqual([]);
+
+    fireEvent.click(fechar);
+    expect(mocks.onOpenChange).toHaveBeenCalledWith(false);
   });
 
   test("mostra quando o backup semanal está em dia", () => {

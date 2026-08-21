@@ -140,7 +140,10 @@ export function PropertiesPanel({ onClose }: { onClose?: () => void } = {}) {
         event.preventDefault();
         setPickerOpen(true);
       }
-      if (event.key === "Escape") setPickerOpen(false);
+      /*
+       * O Escape fica com o Dialog: só a camada mais alta do Radix deve
+       * consumi-lo. Fechar o seletor daqui atropelava overlays aninhados.
+       */
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
