@@ -31,7 +31,8 @@ pub struct NoteRelation {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RejectedRelation {
     pub id: String,
     pub first_note_id: String,

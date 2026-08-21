@@ -16,9 +16,11 @@ import {
   CalendarRange,
   FileText,
   FolderKanban,
+  GraduationCap,
   Inbox,
   Lightbulb,
   Link2,
+  ListTree,
   PenLine,
   Signpost,
   Target,
@@ -30,7 +32,12 @@ import {
 import { useNotes } from "@/app/providers/NotesProvider";
 import { useKnowledge } from "@/app/providers/KnowledgeProvider";
 import { useNavigation } from "@/app/providers/NavigationProvider";
-import { ALL_SCOPE, FOLDER_LABELS, type TemplateId } from "@/domain/notes";
+import {
+  ALL_SCOPE,
+  FOLDER_LABELS,
+  countUniqueConnections,
+  type TemplateId
+} from "@/domain/notes";
 import {
   TEMPLATES,
   TEMPLATE_GROUPS,
@@ -39,12 +46,19 @@ import {
 } from "@/domain/templates";
 import { formatRelative, toPlainText } from "@/shared/html";
 import { formatShortcut } from "@/shared/platform";
+import { GuidedStart } from "@/features/onboarding";
+import {
+  FIRST_CYCLE_IDEA_TARGET,
+  firstCycleProgressFor
+} from "@/features/onboarding/guidedOnboarding";
+import { selectDashboardFocus } from "./dashboardFocus";
 
 const TEMPLATE_ICONS: Record<TemplateId, LucideIcon> = {
   blank: FileText,
   project: FolderKanban,
   area: Target,
   concept: Lightbulb,
+  study: GraduationCap,
   reference: BookOpen,
   session: Timer,
   decision: Signpost,
@@ -154,16 +168,96 @@ export function Dashboard() {
     [notes.notes]
   );
 
-  const connections = notes.notes.reduce((total, note) => total + note.connections.length, 0);
+  const connections = countUniqueConnections(notes.notes);
   const reviewDue = knowledge.snapshot.metrics.reviewDue;
   const inboxCount = notes.folderCounts.inbox ?? 0;
+  // Primeira execução: sem notas, um painel de métricas zeradas e um "Retomar"
+  // vazio só reforçam o vazio. Nesse estado a home lidera com a ação de criar.
+  const hasNotes = notes.notes.length > 0;
+  const firstCycle = firstCycleProgressFor(notes.notes, notes.draft.id);
+  const focusKind = selectDashboardFocus({
+    firstCycleStage: firstCycle?.stage,
+    reviewDue,
+    inboxCount
+  });
 
   /**
-   * O cartão de foco responde ao estado real: revisar vem antes de organizar,
-   * que vem antes de escrever. Sem isso a home dizia a mesma coisa todo dia.
+   * O cartão de foco responde ao estado real. O primeiro ciclo lidera enquanto
+   * incompleto; depois, revisão e entrada voltam a preceder a celebração.
    */
-  const focus = reviewDue
-    ? {
+  const focus =
+    focusKind === "capture"
+      ? {
+          eyebrow: "Primeiro ciclo",
+          title: "Seu mapa precisa da primeira ideia",
+          body: "Capture uma ideia pequena que responda a uma das perguntas do mapa. Você vai refiná-la e conectar as duas em seguida.",
+          action: "Criar primeira captura",
+          run: () => void notes.newNote(),
+          tone: "bg-[#e9eefb] text-[#2f5aa8]",
+          icon: ListTree
+        }
+      : focusKind === "write"
+        ? {
+            eyebrow: "Primeiro ciclo",
+            title: "Termine sua primeira captura",
+            body: "Escreva uma ideia em suas palavras. Um título e uma explicação curta já bastam para continuar.",
+            action: "Voltar ao rascunho",
+            run: () => navigation.setView("note"),
+            tone: "bg-[#e9eefb] text-[#2f5aa8]",
+            icon: PenLine
+          }
+        : focusKind === "process"
+          ? {
+              eyebrow: "Primeiro ciclo",
+              title: "Transforme a captura em conhecimento",
+              body: "O processamento ajuda a verificar origem, clareza e atomicidade antes de promover a ideia.",
+              action: "Processar captura",
+              run: () =>
+                void notes.persistDraft().then((persisted) => {
+                  if (persisted) navigation.setView("process");
+                }),
+              tone: "bg-[#fdf1dd] text-[#8a5a12]",
+              icon: Inbox
+            }
+          : focusKind === "connect"
+            ? {
+                eyebrow: "Primeiro ciclo",
+                title:
+                  `Falta explicar a conexão ${(firstCycle?.connectedCount ?? 0) + 1} de ` +
+                  `${firstCycle?.targetCount ?? FIRST_CYCLE_IDEA_TARGET}`,
+                body: "Abra a nota permanente, conecte-a ao mapa inicial e registre por que as duas ideias se relacionam.",
+                action: "Abrir nota permanente",
+                run: () =>
+                  firstCycle?.captureId
+                    ? void notes.openNote(firstCycle.captureId)
+                    : navigation.setView("note"),
+                tone: "bg-[#efecfd] text-[#6a4fd0]",
+                icon: Link2
+              }
+            : focusKind === "expand"
+              ? {
+                  eyebrow: "Primeiro ciclo",
+                  title:
+                    `${firstCycle?.connectedCount ?? 0} de ` +
+                    `${firstCycle?.targetCount ?? FIRST_CYCLE_IDEA_TARGET} ideias conectadas`,
+                  body: "Crie outra captura pequena e repita o processamento. Três ideias bastam para enxergar um conjunto, não apenas notas isoladas.",
+                  action: "Criar próxima captura",
+                  run: () => void notes.newNote(),
+                  tone: "bg-[#e9eefb] text-[#2f5aa8]",
+                  icon: ListTree
+                }
+              : focusKind === "complete"
+              ? {
+                  eyebrow: "Primeiro ciclo concluído",
+                  title: "Você já tem uma linha de pensamento",
+                  body: "O mapa, três notas permanentes e os motivos das conexões formam seu primeiro conjunto reutilizável.",
+                  action: "Ver no mapa",
+                  run: () => navigation.toggleMap("explore"),
+                  tone: "bg-[#e8f4ec] text-[#1c6b45]",
+                  icon: Link2
+                }
+              : focusKind === "review"
+                ? {
         eyebrow: "Sua memória pede atenção",
         title: `${reviewDue} ${reviewDue === 1 ? "nota está esfriando" : "notas estão esfriando"}`,
         body: "A retenção estimada dessas notas caiu abaixo de 55%. Revisar reforça a nota e todas as conexões ligadas a ela.",
@@ -171,9 +265,9 @@ export function Dashboard() {
         run: () => navigation.toggleMap("review"),
         tone: "bg-[#fdeef1] text-[#a3324c]",
         icon: Brain
-      }
-    : inboxCount
-      ? {
+                  }
+                : focusKind === "inbox"
+                  ? {
           eyebrow: "Caixa de entrada",
           title: `${inboxCount} ${inboxCount === 1 ? "nota esperando destino" : "notas esperando destino"}`,
           body: "Processar a entrada é o que impede a captura de virar acúmulo. O fluxo pergunta uma coisa de cada vez até a ideia virar nota conectada.",
@@ -181,16 +275,22 @@ export function Dashboard() {
           run: () => navigation.setView("process"),
           tone: "bg-[#fdf1dd] text-[#8a5a12]",
           icon: Inbox
-        }
-      : {
-          eyebrow: "Tudo em dia",
-          title: "Que ideia merece ser registrada?",
-          body: "Nada pendente de revisão nem na caixa de entrada. Um bom momento para escrever algo novo ou revisitar uma conexão.",
-          action: "Escrever nota diária",
-          run: () => void notes.newNoteFromTemplate("daily"),
+                    }
+                  : {
+          eyebrow: hasNotes ? "Tudo em dia" : "Primeiros passos",
+          title: hasNotes ? "Nada pendente, o espaço é seu" : "Comece pela primeira nota",
+          body: hasNotes
+            ? "Sem revisões nem caixa de entrada esperando. Um bom momento para escrever algo novo ou revisitar uma conexão."
+            : "Capture uma ideia solta ou escolha um modelo abaixo. O Hyperzettel organiza, conecta e ajuda a revisar depois.",
+          // No first-run, a nota em branco é o primeiro passo mais gentil que um
+          // modelo estruturado; os modelos ficam logo abaixo para quem quiser.
+          action: hasNotes ? "Escrever nota diária" : "Escrever livremente",
+          run: hasNotes
+            ? () => void notes.newNoteFromTemplate("daily")
+            : () => void notes.newNote(),
           tone: "bg-[#e8f4ec] text-[#1c6b45]",
-          icon: PenLine
-        };
+                      icon: PenLine
+                    };
 
   const FocusIcon = focus.icon;
 
@@ -205,52 +305,62 @@ export function Dashboard() {
               {today}
             </span>
             <h1 className="mt-1.5 text-[1.75rem] font-bold leading-[1.15] tracking-[-0.02em]">
-              Que ideia merece sua atenção hoje?
+              {hasNotes ? "Que ideia merece sua atenção hoje?" : "Sua primeira ideia começa aqui"}
             </h1>
           </div>
-          <Button
-            size="sm"
-            className="shrink-0 gap-1.5 border-text-primary bg-text-primary text-xs text-background-primary"
-            onClick={() => void notes.newNote()}
-          >
-            <PenLine className="size-3.5" strokeWidth={2} />
-            Nova nota
-          </Button>
+          {/* Secundário de propósito: o CTA primário da tela é a ação do
+              cartão de foco, para não competirem dois botões escuros. */}
+          {hasNotes ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              className="shrink-0 gap-1.5 border-border-tertiary bg-background-primary text-xs"
+              onClick={() => void notes.newNote()}
+            >
+              <PenLine className="size-3.5" strokeWidth={2} />
+              Nova nota
+            </Button>
+          ) : null}
         </header>
 
-        <article className="mt-6 flex items-start gap-4 rounded-xl border border-border-primary bg-background-primary p-5 shadow-panel">
-          <span className={cn("grid size-10 shrink-0 place-items-center rounded-xl", focus.tone)}>
-            <FocusIcon className="size-5" strokeWidth={1.75} />
-          </span>
-          <div className="min-w-0 flex-1">
-            <span className="text-2xs font-medium uppercase tracking-[0.08em] text-text-secondary">
-              {focus.eyebrow}
+        {hasNotes ? (
+          <article className="mt-6 flex items-start gap-4 rounded-xl border border-border-primary bg-background-primary p-5 shadow-panel">
+            <span className={cn("grid size-10 shrink-0 place-items-center rounded-xl", focus.tone)}>
+              <FocusIcon className="size-5" strokeWidth={1.75} />
             </span>
-            <h2 className="mt-1 text-lg font-bold tracking-[-0.01em]">{focus.title}</h2>
-            <p className="mt-1.5 max-w-[46rem] text-xs leading-relaxed text-text-tertiary">
-              {focus.body}
-            </p>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <Button
-                size="sm"
-                className="gap-1.5 border-text-primary bg-text-primary text-xs text-background-primary"
-                onClick={focus.run}
-              >
-                {focus.action}
-                <ArrowRight className="size-3.5" strokeWidth={2} />
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                className="border-border-tertiary bg-background-primary text-xs"
-                onClick={() => void notes.newNote()}
-              >
-                Escrever livremente
-              </Button>
+            <div className="min-w-0 flex-1">
+              <span className="text-2xs font-medium uppercase tracking-[0.08em] text-text-secondary">
+                {focus.eyebrow}
+              </span>
+              <h2 className="mt-1 text-lg font-bold tracking-[-0.01em]">{focus.title}</h2>
+              <p className="mt-1.5 max-w-[46rem] text-xs leading-relaxed text-text-tertiary">
+                {focus.body}
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  className="gap-1.5 border-text-primary bg-text-primary text-xs text-background-primary"
+                  onClick={focus.run}
+                >
+                  {focus.action}
+                  <ArrowRight className="size-3.5" strokeWidth={2} />
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="border-border-tertiary bg-background-primary text-xs"
+                  onClick={() => void notes.newNote()}
+                >
+                  Escrever livremente
+                </Button>
+              </div>
             </div>
-          </div>
-        </article>
+          </article>
+        ) : (
+          <GuidedStart />
+        )}
 
+        {hasNotes ? (
         <section aria-label="Resumo" className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard
             icon={FileText}
@@ -285,13 +395,19 @@ export function Dashboard() {
           <StatCard
             icon={Brain}
             label="Retenção"
-            value={`${Math.round(knowledge.snapshot.metrics.average * 100)}%`}
+            value={
+              knowledge.snapshot.metrics.average === null
+                ? "—"
+                : `${Math.round(knowledge.snapshot.metrics.average * 100)}%`
+            }
             supporting={`${reviewDue} a revisar`}
             tone="bg-[#e8f4ec] text-[#1c6b45]"
             onClick={() => navigation.toggleMap("review")}
           />
         </section>
+        ) : null}
 
+        {hasNotes ? (
         <section className="mt-8">
           <div className="flex items-baseline justify-between">
             <h2 className="text-md font-bold tracking-[-0.01em]">Retomar de onde parou</h2>
@@ -340,45 +456,50 @@ export function Dashboard() {
             </div>
           )}
         </section>
+        ) : null}
 
-        <section className="mt-8">
-          <h2 className="text-md font-bold tracking-[-0.01em]">Comece com uma estrutura</h2>
-          <p className="mt-0.5 text-xs text-text-tertiary">
-            Cada modelo abre a nota já com as seções que aquele tipo de pensamento pede.
-          </p>
+        {hasNotes ? (
+          <section className="mt-8">
+            <h2 className="text-md font-bold tracking-[-0.01em]">Comece com uma estrutura</h2>
+            <p className="mt-0.5 text-xs text-text-tertiary">
+              Cada modelo abre a nota já com as seções que aquele tipo de pensamento pede.
+            </p>
 
-          <div className="mt-4 flex flex-col gap-5">
-            {groups.map((group) => {
-              const templates = TEMPLATES.filter(
-                (template) => template.group === group && template.id !== "blank"
-              );
-              if (!templates.length) return null;
+            <div className="mt-4 flex flex-col gap-5">
+              {groups.map((group) => {
+                const templates = TEMPLATES.filter(
+                  (template) => template.group === group && template.id !== "blank"
+                );
+                if (!templates.length) return null;
 
-              return (
-                <div key={group}>
-                  <div className="mb-2 flex items-baseline gap-2">
-                    <h3 className="text-2xs font-medium uppercase tracking-[0.08em] text-text-secondary">
-                      {TEMPLATE_GROUPS[group].label}
-                    </h3>
-                    <span className="text-2xs text-text-secondary/70">
-                      {TEMPLATE_GROUPS[group].hint}
-                    </span>
+                return (
+                  <div key={group}>
+                    <div className="mb-2 flex items-baseline gap-2">
+                      <h3 className="text-2xs font-medium uppercase tracking-[0.08em] text-text-secondary">
+                        {TEMPLATE_GROUPS[group].label}
+                      </h3>
+                      <span className="text-2xs text-text-secondary">
+                        {TEMPLATE_GROUPS[group].hint}
+                      </span>
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                      {templates.map((template) => (
+                        <TemplateCard key={template.id} template={template} />
+                      ))}
+                    </div>
                   </div>
-                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                    {templates.map((template) => (
-                      <TemplateCard key={template.id} template={template} />
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
 
-        <footer className="mt-10 border-t border-border-secondary pt-4 text-2xs text-text-secondary">
-          {formatShortcut("N")} nova nota · {formatShortcut("K")} buscar ·{" "}
-          {formatShortcut("G")} mapa de conhecimento
-        </footer>
+        {hasNotes ? (
+          <footer className="mt-10 border-t border-border-secondary pt-4 text-2xs text-text-secondary">
+            {formatShortcut("N")} nova nota · {formatShortcut("K")} buscar
+            {connections ? ` · ${formatShortcut("G")} mapa de conhecimento` : ""}
+          </footer>
+        ) : null}
       </div>
     </section>
   );

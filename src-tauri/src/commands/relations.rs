@@ -1,10 +1,10 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     knowledge::{
         application::RelationServiceError,
-        domain::{NoteRelation, RelationStatus},
-        infrastructure::{IndexReason, KnowledgeNote},
+        domain::{relation_id, NoteRelation, RejectedRelation, RelationStatus},
+        infrastructure::{IndexReason, KnowledgeNote, RepositoryError},
     },
     state::AppState,
 };
@@ -44,6 +44,52 @@ pub struct RebuildResponse {
 pub struct SyncNotesResponse {
     pub synced_count: usize,
 }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportRejectedResponse {
+    pub imported_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RejectedRelationBackup {
+    pub first_note_id: String,
+    pub second_note_id: String,
+    pub first_content_hash: String,
+    pub second_content_hash: String,
+    pub pipeline_version: String,
+    pub rejected_at: String,
+}
+
+impl From<RejectedRelation> for RejectedRelationBackup {
+    fn from(rejected: RejectedRelation) -> Self {
+        Self {
+            first_note_id: rejected.first_note_id,
+            second_note_id: rejected.second_note_id,
+            first_content_hash: rejected.first_content_hash,
+            second_content_hash: rejected.second_content_hash,
+            pipeline_version: rejected.pipeline_version,
+            rejected_at: rejected.rejected_at,
+        }
+    }
+}
+
+impl From<RejectedRelationBackup> for RejectedRelation {
+    fn from(rejected: RejectedRelationBackup) -> Self {
+        Self {
+            id: relation_id(&rejected.first_note_id, &rejected.second_note_id),
+            first_note_id: rejected.first_note_id,
+            second_note_id: rejected.second_note_id,
+            first_content_hash: rejected.first_content_hash,
+            second_content_hash: rejected.second_content_hash,
+            pipeline_version: rejected.pipeline_version,
+            rejected_at: rejected.rejected_at,
+        }
+    }
+}
+
+const MAX_BACKUP_REJECTIONS: usize = 100_000;
 
 #[tauri::command]
 pub async fn sync_knowledge_notes(
@@ -133,10 +179,80 @@ pub async fn restore_automatic_relation(
 }
 
 #[tauri::command]
+pub async fn export_rejected_relations(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<RejectedRelationBackup>, RelationCommandError> {
+    Ok(state
+        .relation_service
+        .export_rejected()?
+        .into_iter()
+        .map(RejectedRelationBackup::from)
+        .collect())
+}
+
+#[tauri::command]
+pub async fn import_rejected_relations(
+    state: tauri::State<'_, AppState>,
+    rejected_relations: Vec<RejectedRelationBackup>,
+) -> Result<ImportRejectedResponse, RelationCommandError> {
+    if rejected_relations.len() > MAX_BACKUP_REJECTIONS {
+        return Err(RelationCommandError {
+            code: "INVALID_BACKUP_DATA".to_owned(),
+            message: "O backup contém decisões semânticas demais.".to_owned(),
+            retryable: false,
+        });
+    }
+    let rejected_relations = rejected_relations
+        .into_iter()
+        .map(RejectedRelation::from)
+        .collect::<Vec<_>>();
+    let imported_count = match state.relation_service.import_rejected(&rejected_relations) {
+        Ok(count) => count,
+        Err(RelationServiceError::Repository(RepositoryError::InvalidData)) => {
+            return Err(RelationCommandError {
+                code: "INVALID_BACKUP_DATA".to_owned(),
+                message: "O backup contém decisões semânticas inválidas.".to_owned(),
+                retryable: false,
+            });
+        }
+        Err(error) => return Err(error.into()),
+    };
+    Ok(ImportRejectedResponse { imported_count })
+}
+
+#[tauri::command]
 pub async fn remove_note_from_knowledge_index(
     state: tauri::State<'_, AppState>,
     note_id: String,
 ) -> Result<(), RelationCommandError> {
     state.relation_service.remove(&note_id).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn backup_relation() -> RejectedRelationBackup {
+        RejectedRelationBackup {
+            first_note_id: "a".to_owned(),
+            second_note_id: "b".to_owned(),
+            first_content_hash: "a".repeat(64),
+            second_content_hash: "b".repeat(64),
+            pipeline_version: "pipeline".to_owned(),
+            rejected_at: "2026-07-26T12:00:00Z".to_owned(),
+        }
+    }
+
+    #[test]
+    fn backup_relation_uses_camel_case_and_derives_its_internal_id() {
+        let backup = backup_relation();
+        let json = serde_json::to_value(&backup).expect("serialize");
+        assert_eq!(json["firstNoteId"], "a");
+        assert!(json.get("id").is_none());
+
+        let domain = RejectedRelation::from(backup);
+        assert_eq!(domain.id, relation_id("a", "b"));
+        assert_eq!(domain.first_content_hash, "a".repeat(64));
+    }
 }

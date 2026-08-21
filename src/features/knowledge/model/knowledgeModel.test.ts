@@ -9,7 +9,11 @@
 import { describe, expect, test } from "vitest";
 
 import { createNoteRecord, type Note } from "@/domain/notes";
-import { createKnowledgeModel, normalizeKnowledgeState } from "./knowledgeModel";
+import {
+  createKnowledgeModel,
+  isReviewDue,
+  normalizeKnowledgeState
+} from "./knowledgeModel";
 import { policy } from "./retention";
 import { SM2 } from "./scheduler";
 
@@ -69,6 +73,49 @@ describe("sync", () => {
     model.sync([note("a")]);
 
     expect(model.noteInfo("a")!.reviewCount).toBe(before);
+  });
+
+  test("inicia a retenção quando um rascunho se torna revisável", () => {
+    const model = createKnowledgeModel(null);
+    const createdAt = "2026-01-01T00:00:00.000Z";
+    const completedAt = "2026-05-01T12:00:00.000Z";
+    const draft = {
+      ...note("tardia"),
+      status: "draft" as const,
+      updatedAt: createdAt
+    };
+
+    model.sync([draft], Date.parse(createdAt));
+    model.sync(
+      [{ ...draft, status: "saved", updatedAt: completedAt }],
+      Date.parse(completedAt)
+    );
+
+    const info = model.noteInfo("tardia", Date.parse(completedAt))!;
+    expect(info.baselineAt).toBe(completedAt);
+    expect(info.strength).toBeCloseTo(1, 5);
+    expect(model.snapshot(Date.parse(completedAt)).metrics.reviewDue).toBe(0);
+  });
+
+  test("não reinicia histórico quando uma nota revisada volta a ficar elegível", () => {
+    const model = createKnowledgeModel(null);
+    const reviewedAt = "2026-02-01T00:00:00.000Z";
+    model.sync([note("a")], Date.parse("2026-01-01T00:00:00.000Z"));
+    model.reviewNote("a", 4, reviewedAt);
+
+    model.sync(
+      [{ ...note("a"), kind: "fleeting", updatedAt: "2026-03-01T00:00:00.000Z" }],
+      Date.parse("2026-03-01T00:00:00.000Z")
+    );
+    model.sync(
+      [{ ...note("a"), updatedAt: "2026-04-01T00:00:00.000Z" }],
+      Date.parse("2026-04-01T00:00:00.000Z")
+    );
+
+    const info = model.noteInfo("a")!;
+    expect(info.reviewCount).toBe(1);
+    expect(info.lastReviewedAt).toBe(reviewedAt);
+    expect(info.dueAt).toBe(new Date(Date.parse(reviewedAt) + DAY).toISOString());
   });
 });
 
@@ -245,6 +292,27 @@ describe("estado persistido", () => {
 });
 
 describe("métricas e curva", () => {
+  test("centraliza a regra que decide se uma nota está vencida", () => {
+    const at = Date.parse("2026-05-01T12:00:00.000Z");
+    const base = {
+      kind: "permanent" as const,
+      status: "saved" as const,
+      dueAt: null,
+      strength: 0.6
+    };
+
+    expect(isReviewDue(base, at)).toBe(false);
+    expect(isReviewDue({ ...base, strength: 0.54 }, at)).toBe(true);
+    expect(
+      isReviewDue({ ...base, dueAt: "2026-05-02T12:00:00.000Z" }, at)
+    ).toBe(false);
+    expect(
+      isReviewDue({ ...base, dueAt: "2026-04-30T12:00:00.000Z" }, at)
+    ).toBe(true);
+    expect(isReviewDue({ ...base, status: "draft", strength: 0.1 }, at)).toBe(false);
+    expect(isReviewDue({ ...base, kind: "fleeting", strength: 0.1 }, at)).toBe(false);
+  });
+
   test("conta como vencida a nota cujo prazo passou", () => {
     const model = createKnowledgeModel(null);
     model.sync([note("a")]);
@@ -256,10 +324,74 @@ describe("métricas e curva", () => {
     expect(model.snapshot(at + 2 * DAY).metrics.reviewDue).toBe(1);
   });
 
+  test("não inclui rascunhos nem capturas fugazes na fila de revisão", () => {
+    const model = createKnowledgeModel(null);
+    model.sync([
+      note("permanente"),
+      { ...note("rascunho"), status: "draft" },
+      { ...note("captura"), kind: "fleeting" }
+    ]);
+
+    const muchLater = Date.parse("2027-01-01T00:00:00.000Z");
+    expect(model.snapshot(muchLater).metrics.reviewDue).toBe(1);
+    expect(model.reviewNote("rascunho", 4)).toEqual({ ok: false, reason: "ineligible" });
+    expect(model.reviewNote("captura", 4)).toEqual({ ok: false, reason: "ineligible" });
+  });
+
+  test("calcula a retenção média somente entre notas revisáveis", () => {
+    const model = createKnowledgeModel(null);
+    const at = Date.parse("2026-05-01T12:00:00.000Z");
+    const fresh = {
+      ...note("permanente"),
+      updatedAt: new Date(at).toISOString()
+    };
+    const old = "2026-01-01T00:00:00.000Z";
+
+    const result = model.sync(
+      [
+        fresh,
+        { ...note("rascunho"), status: "draft", updatedAt: old },
+        { ...note("captura"), kind: "fleeting", updatedAt: old }
+      ],
+      at
+    );
+
+    expect(result.notes).toHaveLength(3);
+    expect(result.metrics.average).toBeCloseTo(1, 5);
+  });
+
+  test("não inventa retenção zero quando ainda não há nota revisável", () => {
+    const model = createKnowledgeModel(null);
+    const result = model.sync([
+      { ...note("rascunho"), status: "draft" },
+      { ...note("captura"), kind: "fleeting" }
+    ]);
+
+    expect(result.metrics.average).toBeNull();
+  });
+
   test("a curva devolve um ponto por dia do período", () => {
     const model = createKnowledgeModel(null);
     model.sync([note("a")]);
 
     expect(model.curve(30)).toHaveLength(31);
+  });
+
+  test("a curva começa na elegibilidade e ignora rascunhos", () => {
+    const model = createKnowledgeModel(null);
+    const now = Date.parse("2026-05-01T12:00:00.000Z");
+    model.sync(
+      [
+        { ...note("revisável"), updatedAt: new Date(now).toISOString() },
+        { ...note("rascunho"), status: "draft" }
+      ],
+      now
+    );
+
+    expect(model.curve(2, now).map((point) => point.value)).toEqual([
+      null,
+      null,
+      1
+    ]);
   });
 });

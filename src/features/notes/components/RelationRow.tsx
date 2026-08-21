@@ -2,11 +2,11 @@
  * Uma linha por nota relacionada.
  *
  * Conexão é uma aresta sem direção, então a nota aparece uma vez só. A seta
- * diz de onde a relação partiu, e o motivo é editável pelo lado de cá — se a
+ * diz de onde a relação partiu, e o motivo é editável pelo lado de cá - se a
  * conexão só existe do outro lado, escrever um motivo cria a volta.
  */
 
-import { useId } from "react";
+import { useEffect, useId, useState } from "react";
 import { cn } from "@relume_io/relume-ui";
 import { ArrowLeft, ArrowLeftRight, ArrowRight, X } from "lucide-react";
 
@@ -35,6 +35,20 @@ export function RelationRow({
   const { icon: DirectionIcon, hint } = DIRECTION[direction];
   const title = note.title || "Sem título";
   const reasonId = useId();
+
+  /*
+   * O motivo que chega em `relation` já passou por `normalizeConnections`, que
+   * apara as pontas. Ligar o campo direto nele impedia digitar espaço: a tecla
+   * entrava no store e o render seguinte devolvia o texto sem ela.
+   *
+   * Enquanto o texto de fora for só a versão aparada do que está sendo
+   * digitado, o campo mantém o que a pessoa escreveu. Quando muda de verdade
+   * — outra nota, recarga do vault — o valor externo prevalece.
+   */
+  const [typedReason, setTypedReason] = useState(reason);
+  useEffect(() => {
+    setTypedReason((current) => (current.trim() === reason ? current : reason));
+  }, [reason]);
 
   return (
     <div className="group rounded-md border border-border-secondary bg-background-secondary p-1.5">
@@ -76,14 +90,17 @@ export function RelationRow({
         <input
           id={reasonId}
           autoFocus={autoFocusReason}
-          value={reason}
-          onChange={(event) => onReason(event.target.value)}
+          value={typedReason}
+          onChange={(event) => {
+            setTypedReason(event.target.value);
+            onReason(event.target.value);
+          }}
           placeholder={direction === "incoming" ? "Responder…" : "Por que se conectam?"}
           aria-label={`Motivo da conexão com ${title}`}
           className={cn(
             "min-h-7 min-w-0 flex-1 rounded-md border border-border-secondary bg-background-primary px-2 py-1 text-xs leading-snug outline-none",
             "placeholder:text-text-secondary hover:border-border-tertiary focus:border-hz-accent focus:ring-2 focus:ring-hz-accent/20",
-            !reason && "italic"
+            !typedReason && "italic"
           )}
         />
       </div>
@@ -91,7 +108,7 @@ export function RelationRow({
       {/* O motivo da outra ponta é leitura: pertence a quem escreveu. */}
       {incomingReason ? (
         <p className="mt-0.5 truncate px-1.5 text-xs text-text-tertiary" title={incomingReason}>
-          Do outro lado: {incomingReason}
+          Motivo da outra nota: {incomingReason}
         </p>
       ) : null}
     </div>

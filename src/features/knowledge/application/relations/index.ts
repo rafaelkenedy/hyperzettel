@@ -1,7 +1,9 @@
 export {
   enqueueNoteIndexing,
+  exportRejectedRelations,
   getRelatedNotes,
   getRelationStatus,
+  importRejectedRelations,
   nativeRelationsAvailable,
   pauseKnowledgeRelations,
   rebuildKnowledgeRelations,

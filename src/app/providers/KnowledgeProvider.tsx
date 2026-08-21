@@ -26,7 +26,7 @@ import {
   type Quality
 } from "@/features/knowledge";
 import type { Note } from "@/domain/notes";
-import { noteRepository } from "@/infrastructure/noteRepository";
+import { vaultRepository } from "@/infrastructure/vaultRepository";
 import { useAnnouncer } from "@/app/providers/AnnouncerProvider";
 import { useNotes } from "@/app/providers/NotesProvider";
 
@@ -35,7 +35,6 @@ export interface KnowledgeStore {
   /** Retenção da nota aberta no editor, quando ela já existe no mapa. */
   activeRetention: NoteInfo | null;
   reviewNote: (id: string, quality?: Quality) => Promise<void>;
-  reviewActiveNote: (quality?: Quality) => Promise<void>;
   /** Intervalos que cada resposta produziria para a nota indicada. */
   previewIntervals: (id: string) => Record<number, number>;
   curve: (days: number | "all") => CurvePoint[];
@@ -48,7 +47,7 @@ const KnowledgeContext = createContext<KnowledgeStore | null>(null);
 
 export function KnowledgeProvider({ children }: { children: ReactNode }) {
   const { announce } = useAnnouncer();
-  const { savedNotes, draft, ready, persistDraft, currentNote } = useNotes();
+  const { savedNotes, draft, ready } = useNotes();
 
   /*
    * O modelo é estado mutável de longa duração e vive num ref, não no escopo
@@ -67,7 +66,7 @@ export function KnowledgeProvider({ children }: { children: ReactNode }) {
   const persist = useCallback(async () => {
     if (!hydratedRef.current) return;
     try {
-      await noteRepository.saveKnowledge(model.exportState());
+      await vaultRepository.setRetention(model.exportState());
     } catch (error) {
       console.error(error);
     }
@@ -79,7 +78,7 @@ export function KnowledgeProvider({ children }: { children: ReactNode }) {
 
     (async () => {
       try {
-        const stored = await noteRepository.loadKnowledge();
+        const stored = await vaultRepository.getRetention();
         if (cancelled) return;
         if (stored) model.importState(stored);
       } catch (error) {
@@ -115,7 +114,11 @@ export function KnowledgeProvider({ children }: { children: ReactNode }) {
     async (id: string, quality: Quality = 4) => {
       const result = model.reviewNote(id, quality);
       if (!result.ok) {
-        announce("Esta nota ainda não faz parte do mapa de conhecimento.");
+        announce(
+          result.reason === "ineligible"
+            ? "Conclua a nota e processe capturas fugazes antes de revisar."
+            : "Esta nota ainda não faz parte do mapa de conhecimento."
+        );
         return;
       }
       if (result.repeated) {
@@ -132,15 +135,6 @@ export function KnowledgeProvider({ children }: { children: ReactNode }) {
       );
     },
     [announce, model, persist]
-  );
-
-  const reviewActiveNote = useCallback(
-    async (quality: Quality = 4) => {
-      // A nota precisa existir no disco antes de entrar no agendamento.
-      await persistDraft();
-      await reviewNote(currentNote?.id ?? draft.id, quality);
-    },
-    [currentNote?.id, draft.id, persistDraft, reviewNote]
   );
 
   const mergeImported = useCallback(
@@ -162,13 +156,12 @@ export function KnowledgeProvider({ children }: { children: ReactNode }) {
       snapshot,
       activeRetention,
       reviewNote,
-      reviewActiveNote,
       previewIntervals: (id: string) => model.previewFor(id, REVIEW_QUALITIES),
       curve: model.curve,
       exportState: model.exportState,
       mergeImported
     }),
-    [snapshot, activeRetention, reviewNote, reviewActiveNote, mergeImported, model]
+    [snapshot, activeRetention, reviewNote, mergeImported, model]
   );
 
   return <KnowledgeContext.Provider value={value}>{children}</KnowledgeContext.Provider>;

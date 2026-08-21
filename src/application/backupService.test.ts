@@ -4,48 +4,78 @@
  * Compatibilidade de backup entre as versões do app.
  *
  * A promessa é que um arquivo gerado por qualquer versão anterior entra sem
- * perda. Estes testes são o que sustenta essa afirmação.
+ * perda. No modelo de arquivo as imagens de backups v2 antigos são
+ * embutidas em base64 na importação; estes testes sustentam as duas coisas.
  */
 
 import { describe, expect, test } from "vitest";
 
 import { connectionIds, type Note } from "@/domain/notes";
-import type { KnowledgeState } from "@/features/knowledge";
-import type { NoteRepository, StoredImage } from "@/infrastructure/noteRepository";
+import type { KnowledgeState, RejectedRelation } from "@/features/knowledge";
+import { noteFileName, serializeNoteToHtmlDocument } from "@/shared/noteDocument";
+import type { VaultRepository } from "@/infrastructure/vaultRepository";
 import { createBackupService } from "./backupService";
 
-/** Repositório em memória: o serviço recebe a porta por parâmetro. */
-function fakeRepository() {
-  const notes = new Map<string, Note>();
-  const images = new Map<string, StoredImage>();
+/** Vault falso em memória: o serviço recebe a porta por parâmetro. */
+function fakeVault() {
+  const docs = new Map<string, string>();
+  let retention: unknown = null;
 
-  return {
-    notes,
-    images,
-    repository: {
-      putNote: async (note: Note) => {
-        notes.set(note.id, note);
-        return note.id;
-      },
-      putImage: async (image: StoredImage) => {
-        images.set(image.id, image);
-        return image.id;
-      },
-      getAllNotes: async () => [...notes.values()],
-      getAllImages: async () => [...images.values()]
-    } as unknown as NoteRepository
-  };
+  const vault = {
+    save: async (note: Note) => {
+      docs.set(noteFileName(note), serializeNoteToHtmlDocument(note));
+    },
+    readAllDocuments: async () =>
+      [...docs.entries()].map(([fileName, html]) => ({ fileName, html })),
+    setRetention: async (state: unknown) => {
+      retention = state;
+    }
+  } as unknown as VaultRepository;
+
+  return { docs, vault, retention: () => retention };
 }
 
 const emptyKnowledge = (): KnowledgeState => ({ version: 1, notes: {}, edges: {} });
+
+function rejectedRelation(
+  firstNoteId = "a",
+  secondNoteId = "b"
+): RejectedRelation {
+  return {
+    firstNoteId,
+    secondNoteId,
+    firstContentHash: "a".repeat(64),
+    secondContentHash: "b".repeat(64),
+    pipelineVersion: "embeddinggemma-2026-07",
+    rejectedAt: "2026-07-26T12:00:00Z"
+  };
+}
 
 function backupFile(payload: unknown): File {
   return new File([JSON.stringify(payload)], "backup.json", { type: "application/json" });
 }
 
-function createService(exportKnowledge = emptyKnowledge) {
-  const { repository, notes } = fakeRepository();
-  return { service: createBackupService({ repository, exportKnowledge }), notes };
+function createService(
+  exportKnowledge = emptyKnowledge,
+  exportedRejections: RejectedRelation[] = []
+) {
+  const { vault, docs, retention } = fakeVault();
+  const importedRejections: RejectedRelation[] = [];
+  const service = createBackupService({
+    vault,
+    exportKnowledge,
+    exportRejectedRelations: async () => exportedRejections,
+    importRejectedRelations: async (rejected) => {
+      importedRejections.push(...rejected);
+      return rejected.length;
+    }
+  });
+  return {
+    service,
+    docs,
+    retention,
+    importedRejections: () => importedRejections
+  };
 }
 
 describe("importação de formatos antigos", () => {
@@ -114,12 +144,56 @@ describe("importação de formatos antigos", () => {
     expect(result!.knowledge).toEqual(knowledge);
   });
 
-  test("grava as notas importadas no repositório", async () => {
-    const { service, notes } = createService();
+  test("backup antigo sem rejeições continua compatível", async () => {
+    const { service, importedRejections } = createService();
+
+    const result = await service.importBackup(backupFile({ version: 2, notes: [{ id: "a" }] }));
+
+    expect(result!.rejectedRelationCount).toBe(0);
+    expect(importedRejections()).toEqual([]);
+  });
+
+  test("restaura decisões de relações semânticas do formato v3", async () => {
+    const { service, importedRejections } = createService();
+    const rejected = rejectedRelation();
+
+    const result = await service.importBackup(
+      backupFile({
+        format: "hyperzettelkasten",
+        version: 3,
+        notes: [{ id: "a" }, { id: "b" }],
+        rejectedRelations: [rejected]
+      })
+    );
+
+    expect(result!.rejectedRelationCount).toBe(1);
+    expect(importedRejections()).toEqual([rejected]);
+  });
+
+  test("grava as notas importadas no vault", async () => {
+    const { service, docs } = createService();
 
     await service.importBackup(backupFile({ notes: [{ id: "a" }, { id: "b" }] }));
 
-    expect(notes.size).toBe(2);
+    expect(docs.size).toBe(2);
+  });
+
+  test("embute imagens de backup v2 (data-image-id) como base64", async () => {
+    const { service, docs } = createService();
+    const image = "data:image/webp;base64,UklGRhoAAABXRUJQ";
+
+    const result = await service.importBackup(
+      backupFile({
+        format: "hyperzettelkasten",
+        version: 2,
+        notes: [{ id: "a", title: "Com imagem", content: '<p><img data-image-id="x"></p>' }],
+        images: [{ id: "x", data: image }]
+      })
+    );
+
+    const document = docs.get(noteFileName(result!.notes[0]!));
+    expect(document).toContain(image);
+    expect(document).not.toContain("data-image-id");
   });
 });
 
@@ -148,6 +222,21 @@ describe("recusas", () => {
     );
   });
 
+  test("rejeita decisão semântica inconsistente antes de gravar notas", async () => {
+    const { service, docs } = createService();
+
+    await expect(
+      service.importBackup(
+        backupFile({
+          version: 3,
+          notes: [{ id: "a" }, { id: "b" }],
+          rejectedRelations: [{ ...rejectedRelation(), firstContentHash: "curto" }]
+        })
+      )
+    ).rejects.toThrow(/decisão semântica inconsistente/);
+    expect(docs.size).toBe(0);
+  });
+
   test("arquivo ausente não é erro, apenas não faz nada", async () => {
     const { service } = createService();
 
@@ -156,6 +245,30 @@ describe("recusas", () => {
 });
 
 describe("exportação", () => {
+  test("não anuncia backup completo quando um HTML grande foi isolado", async () => {
+    const vault = {
+      readAllDocuments: async () => [
+        {
+          fileName: "grande.html",
+          html: null,
+          contentHash: "oversized:30000000",
+          sizeBytes: 30_000_000,
+          maxBytes: 26_214_400
+        }
+      ]
+    } as unknown as VaultRepository;
+    const service = createBackupService({
+      vault,
+      exportKnowledge: emptyKnowledge,
+      exportRejectedRelations: async () => [],
+      importRejectedRelations: async () => 0
+    });
+
+    await expect(service.exportBackup()).rejects.toThrow(
+      /backup não foi exportado.*excedem o limite de 25 MB/i
+    );
+  });
+
   test("declara o formato atual e embute o histórico", async () => {
     const knowledge: KnowledgeState = {
       version: 1,
@@ -178,12 +291,30 @@ describe("exportação", () => {
 
     await service.importBackup(backupFile({ notes: [{ id: "a", title: "Uma" }] }));
     const result = await service.exportBackup();
-    const parsed = JSON.parse(await result.blob.text());
+    const parsed = JSON.parse(result.contents);
 
     expect(parsed.format).toBe("hyperzettelkasten");
-    expect(parsed.version).toBe(2);
+    expect(parsed.version).toBe(3);
     expect(parsed.knowledge).toEqual(knowledge);
+    expect(parsed.rejectedRelations).toEqual([]);
     expect(result.noteCount).toBe(1);
+    expect(result.rejectedRelationCount).toBe(0);
+  });
+
+  test("inclui rejeições semânticas e preserva no round-trip", async () => {
+    const rejected = rejectedRelation();
+    const { service } = createService(emptyKnowledge, [rejected]);
+    await service.importBackup(backupFile({ notes: [{ id: "a" }, { id: "b" }] }));
+
+    const exported = await service.exportBackup();
+    const { service: other, importedRejections } = createService();
+    const imported = await other.importBackup(
+      new File([exported.contents], "backup.json", { type: "application/json" })
+    );
+
+    expect(exported.rejectedRelationCount).toBe(1);
+    expect(imported!.rejectedRelationCount).toBe(1);
+    expect(importedRejections()).toEqual([rejected]);
   });
 
   test("o que sai volta a entrar sem perda", async () => {
@@ -206,7 +337,7 @@ describe("exportação", () => {
     const exported = await service.exportBackup();
     const { service: outro } = createService();
     const reimported = await outro.importBackup(
-      new File([await exported.blob.text()], "backup.json", { type: "application/json" })
+      new File([exported.contents], "backup.json", { type: "application/json" })
     );
 
     const note = reimported!.notes[0]!;

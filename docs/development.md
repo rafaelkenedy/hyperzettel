@@ -40,6 +40,19 @@ npm run dev
 
 O modo web não executa o backend Rust, o SQLite nem as relações semânticas.
 
+## Arquitetura e segurança
+
+A persistência local é definida pelo
+[ADR 0006](adr/0006-html-per-note-persistence.md). Alterações no formato dos
+HTMLs, na identidade das notas, na reconciliação ou no SQLite devem preservar
+suas invariantes e atualizar o
+[modelo de ameaças do vault](security/vault-threat-model.md).
+
+O vault é a fonte de verdade dos documentos. O SQLite também guarda estado que
+não pode ser refeito apenas dos HTMLs, sobretudo o histórico de revisão; por
+isso a validação de recuperação deve incluir exportação e importação do backup
+JSON.
+
 ## Validar
 
 ```powershell
@@ -61,6 +74,18 @@ Os testes que carregam o modelo real são opt-in:
 cd src-tauri
 cargo test real_pipeline_reuses_cache_and_updates_incrementally -- --ignored --nocapture
 cargo test benchmark_embeddinggemma --release -- --ignored --nocapture
+cargo test --release --test benchmark_retrieval benchmark_lexical_semantic_and_hybrid_retrieval -- --ignored --nocapture
+cd ..
+```
+
+Um vault HTML multidomínio pode ser criado localmente para o benchmark de
+recuperação:
+
+```powershell
+npm run benchmark:vault:prepare
+$env:HYPERZETTEL_RETRIEVAL_FIXTURE = "$PWD\.benchmark-vault"
+cd src-tauri
+cargo test --release --test benchmark_retrieval benchmark_lexical_semantic_and_hybrid_retrieval -- --ignored --nocapture
 cd ..
 ```
 

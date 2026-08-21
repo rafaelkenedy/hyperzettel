@@ -80,7 +80,13 @@ export default {
           "kind-reference-ink": "#276a72",
           "kind-reference-ring": "#c5e0e4",
           "chip-ink": "#6b6862",
-          draft: "#8a5a12"
+          draft: "#8a5a12",
+          // Destaque do editor: mantém contraste AA com `text-primary`.
+          highlight: "#fbeaa6",
+          // Bloco de código: painel escuro, como um visualizador de código.
+          // O par tem contraste ~13:1.
+          code: "#1f1e1b",
+          "code-ink": "#eceae5"
         }
       },
       fontFamily: {

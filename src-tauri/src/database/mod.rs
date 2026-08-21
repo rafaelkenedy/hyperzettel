@@ -8,6 +8,7 @@ use rusqlite::{Connection, Transaction};
 use thiserror::Error;
 
 const RELATIONS_MIGRATION: &str = include_str!("migrations/relations.sql");
+const NOTE_INDEX_MIGRATION: &str = include_str!("migrations/note_index.sql");
 
 #[derive(Debug, Error)]
 pub enum DatabaseError {
@@ -43,6 +44,8 @@ impl Database {
             "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;",
         )?;
         connection.execute_batch(RELATIONS_MIGRATION)?;
+        connection.execute_batch(NOTE_INDEX_MIGRATION)?;
+        ensure_note_index_optional_columns(&connection)?;
         Ok(Self {
             connection: Arc::new(Mutex::new(connection)),
         })
@@ -74,6 +77,30 @@ impl Database {
     }
 }
 
+fn ensure_note_index_optional_columns(connection: &Connection) -> Result<(), rusqlite::Error> {
+    let mut statement = connection.prepare("PRAGMA table_info(note_index)")?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?;
+    if !columns.iter().any(|column| column == "content_hash") {
+        connection.execute(
+            "ALTER TABLE note_index ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''",
+            [],
+        )?;
+    }
+    if !columns.iter().any(|column| column == "recall_prompt") {
+        connection.execute(
+            "ALTER TABLE note_index ADD COLUMN recall_prompt TEXT NOT NULL DEFAULT ''",
+            [],
+        )?;
+    }
+    connection.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_note_index_file_name ON note_index(file_name)",
+        [],
+    )?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -100,5 +127,31 @@ mod tests {
         ] {
             assert!(tables.iter().any(|candidate| candidate == table));
         }
+    }
+
+    #[test]
+    fn upgrades_a_note_index_created_before_optional_columns() {
+        let connection = Connection::open_in_memory().expect("connection");
+        connection
+            .execute_batch(
+                "CREATE TABLE note_index (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    file_name TEXT NOT NULL
+                );",
+            )
+            .expect("old schema");
+
+        ensure_note_index_optional_columns(&connection).expect("upgrade");
+
+        let columns = connection
+            .prepare("PRAGMA table_info(note_index)")
+            .and_then(|mut statement| {
+                statement
+                    .query_map([], |row| row.get::<_, String>(1))?
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .expect("columns");
+        assert!(columns.iter().any(|column| column == "content_hash"));
+        assert!(columns.iter().any(|column| column == "recall_prompt"));
     }
 }

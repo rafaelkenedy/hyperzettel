@@ -48,6 +48,7 @@ export const TEMPLATE_LABELS = {
   area: "Área",
   reference: "Referência",
   concept: "Conceito",
+  study: "Estudo",
   session: "Sessão",
   decision: "Decisão",
   meeting: "Reunião",
@@ -87,6 +88,8 @@ export interface Note {
   id: string;
   title: string;
   content: string;
+  /** Pergunta opcional mostrada antes do conteúdo durante a recuperação ativa. */
+  recallPrompt: string;
   folder: FolderId;
   kind: NoteKind;
   template: TemplateId;
@@ -100,6 +103,7 @@ export interface NoteInput {
   id: string;
   title?: string;
   content?: string;
+  recallPrompt?: string;
   folder?: string;
   kind?: string;
   template?: string;
@@ -133,6 +137,7 @@ export function isNoteKind(value: unknown): value is NoteKind {
  */
 const KIND_FROM_TEMPLATE: Record<TemplateId, NoteKind> = {
   concept: "permanent",
+  study: "permanent",
   reference: "source",
   project: "structure",
   area: "structure",
@@ -197,6 +202,7 @@ export function createNoteRecord(input: NoteInput): Note {
     id: input.id,
     title: input.title?.trim() || "Sem título",
     content: input.content ?? "",
+    recallPrompt: input.recallPrompt?.trim().slice(0, 300) ?? "",
     folder: isFolderId(input.folder) ? input.folder : "inbox",
     kind: isNoteKind(input.kind) ? input.kind : KIND_FROM_TEMPLATE[template],
     template,
@@ -226,6 +232,10 @@ export function normalizeImportedNote(
         ? source.title.trim().slice(0, 240)
         : "Sem título",
     content: sanitizeContent(source.content),
+    recallPrompt:
+      typeof source.recallPrompt === "string"
+        ? source.recallPrompt.trim().slice(0, 300)
+        : "",
     folder: isFolderId(source.folder) ? source.folder : "inbox",
     kind: isNoteKind(source.kind) ? source.kind : KIND_FROM_TEMPLATE[template],
     template,
@@ -252,6 +262,17 @@ export function mergeNote(notes: Note[], note: Note): Note[] {
   if (index >= 0) result[index] = { ...result[index], ...note };
   else result.push(note);
   return result;
+}
+
+/**
+ * A nota diária de hoje, se já existir. Identificada pelo template `daily` e
+ * pelo título no formato ISO curto que o modelo gera (AAAA-MM-DD). Manter a
+ * regra pura permite testá-la e evita duplicar diárias (A1 do design review).
+ *
+ * @example findTodaysDaily(notes, "2026-07-24")?.id
+ */
+export function findTodaysDaily(notes: Note[], todayTitle: string): Note | undefined {
+  return notes.find((note) => note.template === "daily" && note.title === todayTitle);
 }
 
 export type FolderCounts = Record<string, number>;
@@ -299,10 +320,34 @@ export function createConnectionCounts(notes: Note[]): Map<string, number> {
   return new Map(Array.from(connectedIds, ([noteId, ids]) => [noteId, ids.size]));
 }
 
+/**
+ * Total de arestas não direcionadas do conjunto.
+ *
+ * `createConnectionCounts` atribui cada relação às duas pontas; dividir a soma
+ * por dois mantém links unilaterais e recíprocos como uma única conexão.
+ */
+export function countUniqueConnections(notes: Note[]): number {
+  const endpointCount = [...createConnectionCounts(notes).values()].reduce(
+    (total, count) => total + count,
+    0
+  );
+  return endpointCount / 2;
+}
+
 export type RelationDirection = "mutual" | "outgoing" | "incoming";
 
-export interface Relation {
-  note: Note;
+/**
+ * O mínimo para descobrir relações: identidade, rótulo e as conexões de saída.
+ * A linha do índice satisfaz esse contrato sem carregar o HTML da nota.
+ */
+export interface Connectable {
+  id: string;
+  title: string;
+  connections: Connection[];
+}
+
+export interface Relation<T extends Connectable = Note> {
+  note: T;
   direction: RelationDirection;
   /** Motivo que esta nota registrou. Vazio quando só a outra declarou. */
   reason: string;
@@ -324,7 +369,7 @@ const DIRECTION_ORDER: Record<RelationDirection, number> = {
  * nota aparecer duas vezes sempre que as duas pontas se declaravam, que é a
  * maioria dos casos. A direção vira um detalhe da relação, não dois blocos.
  */
-export function findRelations(notes: Note[], noteId: string): Relation[] {
+export function findRelations<T extends Connectable>(notes: T[], noteId: string): Relation<T>[] {
   const source = notes.find((note) => note.id === noteId);
   const outgoing = new Map(
     normalizeConnections(source?.connections).map((item) => [item.id, item.reason])
@@ -353,7 +398,7 @@ export function findRelations(notes: Note[], noteId: string): Relation[] {
         incomingReason: incoming?.reason ?? ""
       };
     })
-    .filter((item): item is Relation => item !== null)
+    .filter((item): item is Relation<T> => item !== null)
     .sort(
       (left, right) =>
         DIRECTION_ORDER[left.direction] - DIRECTION_ORDER[right.direction] ||

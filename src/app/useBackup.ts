@@ -6,44 +6,126 @@
  * hooks aqui — que é onde as duas coisas legitimamente se encontram.
  */
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { createBackupService } from "@/application/backupService";
-import { noteRepository } from "@/infrastructure/noteRepository";
+import {
+  BACKUP_RECORDED_EVENT,
+  LAST_BACKUP_STORAGE_KEY,
+  evaluateBackupStatus,
+  readLastBackupTimestamp,
+  recordBackupTimestamp
+} from "@/application/backupReminder";
+import {
+  exportRejectedRelations,
+  importRejectedRelations
+} from "@/features/knowledge";
+import { vaultRepository } from "@/infrastructure/vaultRepository";
+import {
+  backupFileErrorMessage,
+  saveVerifiedBackup
+} from "@/infrastructure/backupFileRepository";
 import { useAnnouncer } from "@/app/providers/AnnouncerProvider";
 import { useKnowledge } from "@/app/providers/KnowledgeProvider";
 import { useNotes } from "@/app/providers/NotesProvider";
 
 export function useBackup() {
   const { announce } = useAnnouncer();
-  const { persistDraft, reload, adoptImported } = useNotes();
+  const { savedNotes, dirty, persistDraft, reload, adoptImported } = useNotes();
   const { exportState, mergeImported } = useKnowledge();
+  const [exporting, setExporting] = useState(false);
+  const [clock, setClock] = useState(Date.now);
+  const [lastExportedAt, setLastExportedAt] = useState<string | null>(() => {
+    try {
+      return readLastBackupTimestamp(window.localStorage);
+    } catch {
+      return null;
+    }
+  });
 
   const service = useMemo(
-    () => createBackupService({ repository: noteRepository, exportKnowledge: exportState }),
+    () =>
+      createBackupService({
+        vault: vaultRepository,
+        exportKnowledge: exportState,
+        exportRejectedRelations,
+        importRejectedRelations
+      }),
     [exportState]
   );
 
+  useEffect(() => {
+    const sync = () => {
+      try {
+        setLastExportedAt(readLastBackupTimestamp(window.localStorage));
+      } catch {
+        setLastExportedAt(null);
+      }
+      setClock(Date.now());
+    };
+    const syncStorage = (event: StorageEvent) => {
+      if (event.key === null || event.key === LAST_BACKUP_STORAGE_KEY) sync();
+    };
+    window.addEventListener(BACKUP_RECORDED_EVENT, sync);
+    window.addEventListener("storage", syncStorage);
+    const timer = window.setInterval(() => setClock(Date.now()), 60 * 60 * 1000);
+    return () => {
+      window.removeEventListener(BACKUP_RECORDED_EVENT, sync);
+      window.removeEventListener("storage", syncStorage);
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const backupStatus = useMemo(
+    () => evaluateBackupStatus(savedNotes.length, lastExportedAt, clock),
+    [clock, lastExportedAt, savedNotes.length]
+  );
+
   const exportNotes = useCallback(async () => {
+    setExporting(true);
     try {
-      await persistDraft();
+      const hadPendingDraft = dirty;
+      const persisted = await persistDraft();
+      if (hadPendingDraft && !persisted) {
+        announce(
+          "O rascunho atual não pôde ser salvo. Resolva o conflito antes de criar um backup."
+        );
+        return;
+      }
       const result = await service.exportBackup();
-      const url = URL.createObjectURL(result.blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = result.fileName;
-      document.body.append(link);
-      link.click();
-      link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      const receipt = await saveVerifiedBackup(result.fileName, result.contents);
+      if (!receipt) {
+        announce("Exportação cancelada; o lembrete de backup continua ativo.");
+        return;
+      }
+      if (result.noteCount > 0) {
+        const now = Date.now();
+        let timestamp: string;
+        try {
+          timestamp = recordBackupTimestamp(window.localStorage, now);
+        } catch {
+          timestamp = new Date(now).toISOString();
+        }
+        setLastExportedAt(timestamp);
+        setClock(now);
+        window.dispatchEvent(new Event(BACKUP_RECORDED_EVENT));
+      }
       announce(
-        `${result.noteCount} ${result.noteCount === 1 ? "nota exportada" : "notas exportadas"}.`
+        `Backup verificado em “${receipt.fileName}”: ` +
+          `${result.noteCount} ${result.noteCount === 1 ? "nota exportada" : "notas exportadas"}; ` +
+          `${result.rejectedRelationCount} ${
+            result.rejectedRelationCount === 1
+              ? "decisão semântica incluída"
+              : "decisões semânticas incluídas"
+          }.`
       );
     } catch (error) {
       console.error(error);
-      announce("Não foi possível exportar as notas.");
+      announce(backupFileErrorMessage(error));
+    } finally {
+      setExporting(false);
     }
-  }, [announce, persistDraft, service]);
+  }, [announce, dirty, persistDraft, service]);
 
   const importNotes = useCallback(
     async (file: File) => {
@@ -58,7 +140,13 @@ export function useBackup() {
         adoptImported(result.notes);
 
         announce(
-          `${result.notes.length} ${result.notes.length === 1 ? "nota importada" : "notas importadas"}.`
+          `${result.notes.length} ${
+            result.notes.length === 1 ? "nota importada" : "notas importadas"
+          }; ${result.rejectedRelationCount} ${
+            result.rejectedRelationCount === 1
+              ? "decisão semântica restaurada"
+              : "decisões semânticas restauradas"
+          }.`
         );
       } catch (error) {
         console.error(error);
@@ -72,5 +160,5 @@ export function useBackup() {
     [adoptImported, announce, mergeImported, persistDraft, reload, service]
   );
 
-  return { exportNotes, importNotes };
+  return { exportNotes, importNotes, backupStatus, exporting };
 }

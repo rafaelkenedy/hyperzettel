@@ -6,7 +6,6 @@
  */
 
 export { KnowledgeMap } from "./components/KnowledgeMap";
-export { ReviewGrades } from "./components/ReviewGrades";
 
 export {
   createKnowledgeModel,
@@ -24,7 +23,9 @@ export { dueLabel, LEVEL_TONE } from "./lib/format";
 
 export {
   enqueueNoteIndexing,
+  exportRejectedRelations,
   getRelatedNotes,
+  importRejectedRelations,
   pauseKnowledgeRelations,
   rebuildKnowledgeRelations,
   removeNoteFromKnowledgeIndex
@@ -37,4 +38,8 @@ export {
 export { RelatedNotes } from "./ui/relations/RelatedNotes";
 export { RelationSettings } from "./ui/relations/RelationSettings";
 export { RelationStatus } from "./ui/relations/RelationStatus";
-export type { NoteRelation, RelationStatus as KnowledgeRelationStatus } from "./domain/relations";
+export type {
+  NoteRelation,
+  RejectedRelation,
+  RelationStatus as KnowledgeRelationStatus
+} from "./domain/relations";

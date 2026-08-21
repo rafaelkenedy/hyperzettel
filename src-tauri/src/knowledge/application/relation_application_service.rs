@@ -167,6 +167,17 @@ impl RelationApplicationService {
         )?)
     }
 
+    pub fn export_rejected(&self) -> Result<Vec<RejectedRelation>, RelationServiceError> {
+        Ok(self.relation_repository.list_rejected()?)
+    }
+
+    pub fn import_rejected(
+        &self,
+        rejected: &[RejectedRelation],
+    ) -> Result<usize, RelationServiceError> {
+        Ok(self.relation_repository.put_rejected_many(rejected)?)
+    }
+
     pub async fn enqueue(&self, note_id: String, revision: String, reason: IndexReason) -> bool {
         self.queue
             .enqueue(IndexRequest {

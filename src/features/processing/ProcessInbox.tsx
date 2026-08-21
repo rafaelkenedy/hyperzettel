@@ -143,7 +143,13 @@ export function ProcessInbox() {
         </div>
       </div>
 
-      <ConnectionsDialog open={pickerOpen} onOpenChange={setPickerOpen} />
+      <ConnectionsDialog
+        open={pickerOpen}
+        onOpenChange={(open) => {
+          setPickerOpen(open);
+          if (!open) void notes.persistDraft();
+        }}
+      />
     </section>
   );
 }

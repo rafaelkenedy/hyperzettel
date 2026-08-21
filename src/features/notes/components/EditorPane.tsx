@@ -21,13 +21,15 @@ import {
 } from "@relume_io/relume-ui";
 import {
   BrainCircuit,
+  CircleCheck,
   FileDown,
   FileUp,
   Network,
   PanelLeft,
   PanelRight,
-  Save,
-  Trash2
+  RefreshCw,
+  Trash2,
+  TriangleAlert
 } from "lucide-react";
 
 import { useNotes } from "@/app/providers/NotesProvider";
@@ -35,24 +37,31 @@ import { useKnowledge } from "@/app/providers/KnowledgeProvider";
 import { useNavigation } from "@/app/providers/NavigationProvider";
 import { useAnnouncer } from "@/app/providers/AnnouncerProvider";
 import { useBackup } from "@/app/useBackup";
+import { findTemplate, noteCompletionReadiness } from "@/domain/templates";
 import { FormattingToolbar } from "./FormattingToolbar";
 import { IconAction } from "./IconAction";
-import { noteRepository } from "@/infrastructure/noteRepository";
+import {
+  activeCodeBlock,
+  handleCodeBlockKeyDown,
+  insertTextInCodeBlock,
+  toggleCodeBlock
+} from "../codeBlock";
+import { isHighlightActive, toggleHighlight } from "../highlight";
+import {
+  PLAIN_LANGUAGE,
+  highlightCodeBlocks,
+  languageOf,
+  setCodeLanguage
+} from "../codeSyntax";
+import { activeRange } from "../editorSelection";
+import { optimizeImageToDataUrl } from "@/infrastructure/imageOptimizer";
 import { formatShortcut } from "@/shared/platform";
+import { toPlainText } from "@/shared/html";
+import { slugify } from "@/shared/slug";
 import { KindBadge } from "./KindBadge";
-
-/** Transforma o título em um identificador legível, como no cabeçalho do print. */
-function toSlug(value: string): string {
-  return (
-    value
-      .normalize("NFD")
-      .replace(/[̀-ͯ]/g, "")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 48) || "sem-titulo"
-  );
-}
+import { FirstCycleCoach } from "@/features/onboarding/FirstCycleCoach";
+import { StructureConnections } from "@/features/onboarding/StructureConnections";
+import { resolveCompletionAction } from "../noteUiState";
 
 export function EditorPane({
   onToggleNotes,
@@ -74,8 +83,15 @@ export function EditorPane({
   const titleRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
-  const objectUrlsRef = useRef<Set<string>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [codeBlockActive, setCodeBlockActive] = useState(false);
+  const [highlightActive, setHighlightActive] = useState(false);
+  const [codeLanguage, setCodeLanguage_] = useState(PLAIN_LANGUAGE);
+  // O `<select>` da barra tira o foco do editor; a referência ao bloco ativo
+  // sobrevive a isso, a seleção do documento não.
+  const activePreRef = useRef<HTMLPreElement | null>(null);
+  const recolorTimer = useRef<number | undefined>(undefined);
+  const composing = useRef(false);
 
   const updateEmptyState = useCallback(() => {
     const editor = editorRef.current;
@@ -85,49 +101,22 @@ export function EditorPane({
     editor.classList.toggle("is-empty", !hasText && !hasMedia);
   }, []);
 
-  /** Serializa sem os `src` de objeto — o HTML guarda apenas `data-image-id`. */
-  const serialize = useCallback(() => {
-    const editor = editorRef.current;
-    if (!editor) return "";
-    const clone = editor.cloneNode(true) as HTMLElement;
-    clone.querySelectorAll("img[data-image-id]").forEach((image) => image.removeAttribute("src"));
-    return clone.innerHTML.trim();
-  }, []);
+  /** Serializa o corpo direto: as imagens já são data-URI base64 embutidas. */
+  const serialize = useCallback(() => editorRef.current?.innerHTML.trim() ?? "", []);
 
-  const releaseObjectUrls = useCallback(() => {
-    objectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
-    objectUrlsRef.current.clear();
-  }, []);
-
-  /** Reidrata as imagens persistidas, buscando os Blobs no IndexedDB. */
-  const hydrateImages = useCallback(async () => {
-    const editor = editorRef.current;
-    if (!editor) return;
-    const images = Array.from(editor.querySelectorAll<HTMLImageElement>("img[data-image-id]"));
-    await Promise.all(
-      images.map(async (element) => {
-        const stored = await noteRepository.getImage(element.dataset.imageId ?? "");
-        if (!stored?.blob) return;
-        const url = URL.createObjectURL(stored.blob);
-        objectUrlsRef.current.add(url);
-        element.src = url;
-        if (!element.alt) element.alt = stored.name || "Imagem da nota";
-      })
-    );
-  }, []);
-
-  // Repopula o DOM apenas quando outra nota é carregada.
+  // Repopula o DOM apenas quando outra nota é carregada. As imagens já vêm
+  // embutidas como data-URI no HTML, então não há reidratação.
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor) return;
-    releaseObjectUrls();
     editor.innerHTML = notes.draft.content || "";
-    void hydrateImages().then(updateEmptyState);
     updateEmptyState();
+    // Notas escritas antes da coloração ganham cor ao abrir. O resultado não
+    // volta para o store: colorir não é uma edição da pessoa e não deve sujar
+    // o rascunho nem disparar autosave.
+    highlightCodeBlocks(editor);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notes.loadToken]);
-
-  useEffect(() => releaseObjectUrls, [releaseObjectUrls]);
 
   /**
    * Move o cursor para o início do corpo. `focus()` sozinho não basta num
@@ -154,10 +143,28 @@ export function EditorPane({
     title.style.height = `${title.scrollHeight}px`;
   }, [notes.draft.title]);
 
+  /**
+   * Recolore os blocos depois de uma pausa na digitação.
+   *
+   * Colorir a cada tecla reescreveria o DOM sob o caret sem necessidade; a
+   * pausa também evita recolorir um token que ainda está sendo escrito.
+   */
+  const scheduleRecolor = useCallback(() => {
+    window.clearTimeout(recolorTimer.current);
+    recolorTimer.current = window.setTimeout(() => {
+      const editor = editorRef.current;
+      if (!editor || composing.current) return;
+      if (highlightCodeBlocks(editor)) notes.setContent(serialize());
+    }, 350);
+  }, [notes, serialize]);
+
+  useEffect(() => () => window.clearTimeout(recolorTimer.current), []);
+
   const handleInput = useCallback(() => {
     updateEmptyState();
     notes.setContent(serialize());
-  }, [notes, serialize, updateEmptyState]);
+    scheduleRecolor();
+  }, [notes, scheduleRecolor, serialize, updateEmptyState]);
 
   const runCommand = useCallback(
     (command: string, value?: string) => {
@@ -167,6 +174,53 @@ export function EditorPane({
     },
     [handleInput]
   );
+
+  const runCodeBlock = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    editor.focus();
+    toggleCodeBlock(editor);
+    handleInput();
+  }, [handleInput]);
+
+  const runHighlight = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    editor.focus();
+    toggleHighlight(editor);
+    handleInput();
+  }, [handleInput]);
+
+  const changeCodeLanguage = useCallback(
+    (language: string) => {
+      const pre = activePreRef.current;
+      const editor = editorRef.current;
+      if (!pre || !editor || !editor.contains(pre)) return;
+      setCodeLanguage(pre, language);
+      setCodeLanguage_(languageOf(pre));
+      handleInput();
+    },
+    [handleInput]
+  );
+
+  // Os botões alternáveis refletem onde a seleção está, e ela muda por clique,
+  // seta ou digitação — `selectionchange` é o único evento que cobre os três.
+  useEffect(() => {
+    const syncSelectionState = () => {
+      const editor = editorRef.current;
+      // Seleção fora do corpo (barra, título, outro painel): preserva o último
+      // estado conhecido, senão o seletor de linguagem sumiria ao ser usado.
+      if (!editor || !activeRange(editor)) return;
+
+      const pre = activeCodeBlock(editor);
+      activePreRef.current = pre;
+      setCodeBlockActive(Boolean(pre));
+      setCodeLanguage_(pre ? languageOf(pre) : PLAIN_LANGUAGE);
+      setHighlightActive(isHighlightActive(editor));
+    };
+    document.addEventListener("selectionchange", syncSelectionState);
+    return () => document.removeEventListener("selectionchange", syncSelectionState);
+  }, []);
 
   const insertLink = useCallback(() => {
     const raw = window.prompt("Cole ou digite o endereço do link:", "https://")?.trim();
@@ -183,18 +237,18 @@ export function EditorPane({
       if (!editor) return;
 
       try {
-        const stored = await noteRepository.saveImage(file);
-        const url = URL.createObjectURL(stored.blob);
-        objectUrlsRef.current.add(url);
+        // Otimiza para WebP e embute como data-URI base64: a nota fica
+        // auto-contida em um único arquivo `.html`.
+        const { dataUrl } = await optimizeImageToDataUrl(file);
+        const label = file.name || "Imagem da nota";
 
         const figure = document.createElement("figure");
         figure.contentEditable = "false";
         const image = document.createElement("img");
-        image.src = url;
-        image.alt = stored.name;
-        image.dataset.imageId = stored.id;
+        image.src = dataUrl;
+        image.alt = label;
         const caption = document.createElement("figcaption");
-        caption.textContent = stored.name;
+        caption.textContent = label;
         figure.append(image, caption);
 
         editor.focus();
@@ -216,13 +270,16 @@ export function EditorPane({
         announcer.announce("Imagem adicionada à nota.");
       } catch (error) {
         console.error(error);
-        announcer.announce("Não foi possível adicionar a imagem.");
+        // O otimizador lança mensagens específicas (tipo/tamanho); mostra-as.
+        announcer.announce(
+          error instanceof Error ? error.message : "Não foi possível adicionar a imagem."
+        );
       }
     },
     [announcer, handleInput]
   );
 
-  // Ctrl/Cmd + S salva manualmente.
+  // Ctrl/Cmd + S conclui o rascunho ou aplica imediatamente uma alteração.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
@@ -234,19 +291,16 @@ export function EditorPane({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [notes]);
 
-  const slug = toSlug(notes.draft.title);
-  const saveShortcut = formatShortcut("S");
-  const isDraft = notes.draft.status === "draft";
-  const canSave = notes.dirty || (isDraft && notes.currentNote !== null);
-  const saveLabel = isDraft
-    ? notes.dirty
-      ? `Salvar e concluir rascunho (${saveShortcut})`
-      : notes.currentNote
-        ? `Concluir rascunho (${saveShortcut})`
-        : "Novo rascunho — comece a escrever"
-    : notes.dirty
-      ? `Salvar alterações agora (${saveShortcut})`
-      : "Salva";
+  const slug = slugify(notes.draft.title);
+  const titlePlaceholder =
+    findTemplate(notes.draft.template).titlePlaceholder ?? "Novo Zettel";
+  const completionAction = resolveCompletionAction({
+    dirty: notes.dirty,
+    status: notes.draft.status,
+    hasPersistedNote: notes.currentNote !== null,
+    shortcut: formatShortcut("S"),
+    readiness: noteCompletionReadiness(notes.draft, toPlainText)
+  });
 
   return (
     <TooltipProvider delayDuration={400}>
@@ -265,20 +319,31 @@ export function EditorPane({
 
           <div className="ml-auto flex items-center gap-0.5">
             <IconAction
-              icon={Save}
-              label={saveLabel}
+              icon={CircleCheck}
+              label={completionAction.label}
               onClick={() => void notes.saveNow()}
-              disabled={notes.saving || !canSave}
-              statusDot={isDraft ? "draft" : undefined}
+              disabled={notes.saving || !completionAction.enabled}
+              statusDot={notes.draft.status === "draft" ? "draft" : undefined}
             />
             <IconAction
               icon={BrainCircuit}
               label={
-                knowledge.activeRetention
-                  ? `Marcar como revisada · retenção ${Math.round(knowledge.activeRetention.strength * 100)}%`
-                  : "Marcar como revisada"
+                notes.draft.kind === "fleeting"
+                  ? "Processe a captura antes de revisar"
+                  : knowledge.activeRetention
+                    ? `Abrir revisão ativa · retenção ${Math.round(knowledge.activeRetention.strength * 100)}%`
+                    : "Conclua a nota antes de revisar"
               }
-              onClick={() => void knowledge.reviewActiveNote()}
+              onClick={() =>
+                void notes.persistDraft().then((persisted) => {
+                  if (persisted) navigation.openReview(persisted.id);
+                })
+              }
+              disabled={
+                notes.saving ||
+                !knowledge.activeRetention ||
+                notes.draft.kind === "fleeting"
+              }
             />
             <IconAction
               icon={Network}
@@ -314,6 +379,36 @@ export function EditorPane({
           </div>
         </header>
 
+        <FirstCycleCoach />
+
+        {notes.externalVaultChange ? (
+          <div
+            role="status"
+            className="mx-4 mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-[#ecd9ac] bg-[#fff9e9] px-3 py-2.5 text-[#7a5411] sm:mx-6"
+          >
+            <TriangleAlert className="size-4 shrink-0" strokeWidth={1.8} />
+            <div className="min-w-[14rem] flex-1">
+              <p className="text-xs font-semibold">O vault mudou fora do aplicativo</p>
+              <p className="mt-0.5 text-2xs leading-relaxed opacity-80">
+                O autosave foi pausado. Seu conteúdo local será salvo com uma nova identidade antes
+                de carregar a versão do disco.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              className="h-8 shrink-0 gap-1.5 border-[#7a5411] bg-[#7a5411] px-3 text-xs text-white"
+              onClick={() => void notes.reloadExternalChanges()}
+              disabled={notes.syncingVault}
+            >
+              <RefreshCw
+                className={`size-3.5 ${notes.syncingVault ? "animate-spin" : ""}`}
+                strokeWidth={1.8}
+              />
+              {notes.syncingVault ? "Recarregando…" : "Preservar cópia e recarregar"}
+            </Button>
+          </div>
+        ) : null}
+
         <div className="hz-scroll min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto w-full max-w-[46rem] px-6 pb-24 pt-8 sm:px-10 sm:pt-9">
             {/* Textarea, e não input: títulos longos precisam quebrar linha. */}
@@ -328,7 +423,7 @@ export function EditorPane({
                 focusEditorStart();
               }}
               rows={1}
-              placeholder="Novo Zettel"
+              placeholder={titlePlaceholder}
               aria-label="Título da nota"
               className="w-full resize-none overflow-hidden border-0 bg-transparent text-[2rem] font-bold leading-[1.2] tracking-[-0.02em] outline-none placeholder:text-neutral-lighter"
             />
@@ -339,6 +434,12 @@ export function EditorPane({
               onCommand={runCommand}
               onInsertLink={insertLink}
               onInsertImage={() => imageInputRef.current?.click()}
+              onToggleCodeBlock={runCodeBlock}
+              onToggleHighlight={runHighlight}
+              onCodeLanguageChange={changeCodeLanguage}
+              codeLanguage={codeLanguage}
+              codeBlockActive={codeBlockActive}
+              highlightActive={highlightActive}
             />
 
             <div
@@ -350,13 +451,40 @@ export function EditorPane({
               aria-label="Conteúdo da nota"
               data-placeholder="Comece a escrever. Conecte esta nota a outras pelo painel à direita."
               onInput={handleInput}
+              // Recolorir no meio de uma composição (IME, acentos) cancelaria
+              // o texto ainda não confirmado.
+              onCompositionStart={() => {
+                composing.current = true;
+              }}
+              onCompositionEnd={() => {
+                composing.current = false;
+                scheduleRecolor();
+              }}
+              onKeyDown={(event) => {
+                // Dentro de um bloco de código, Enter quebra a linha em vez de
+                // encerrar o bloco; o segundo Enter na linha vazia sai dele.
+                const editor = editorRef.current;
+                if (!editor || !handleCodeBlockKeyDown(event.nativeEvent, editor)) return;
+                event.preventDefault();
+                handleInput();
+              }}
               onPaste={(event) => {
                 // Cola sempre como texto puro, evitando HTML externo no conteúdo.
                 event.preventDefault();
-                document.execCommand("insertText", false, event.clipboardData.getData("text/plain"));
+                const text = event.clipboardData.getData("text/plain");
+                const editor = editorRef.current;
+                // Em um bloco de código o `insertText` do navegador quebraria o
+                // `<pre>` em `<div>`s; a inserção manual preserva as linhas.
+                if (editor && insertTextInCodeBlock(editor, text)) {
+                  handleInput();
+                  return;
+                }
+                document.execCommand("insertText", false, text);
               }}
               className="hz-prose min-h-[24rem] pb-10"
             />
+
+            <StructureConnections />
           </div>
         </div>
 
@@ -384,7 +512,17 @@ export function EditorPane({
         />
 
         <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-          <DialogContent className="max-w-sm rounded-lg border border-border-primary bg-background-primary p-6 shadow-pop">
+          {/*
+           * Confirmação destrutiva não leva X: o rodapé já oferece as duas
+           * saídas explícitas. Um terceiro caminho de fechar só tornaria a
+           * escolha ambígua. Suprimimos o X que o relume põe no overlay.
+           */}
+          <DialogContent
+            closeIconPosition="inside"
+            closeIconClassName="hidden"
+            overlayClassName="bg-black/40"
+            className="max-w-sm rounded-lg border border-border-primary bg-background-primary p-6 shadow-pop"
+          >
             <DialogHeader>
               <DialogTitle className="text-md">Excluir esta nota?</DialogTitle>
               <DialogDescription className="text-xs text-text-tertiary">
