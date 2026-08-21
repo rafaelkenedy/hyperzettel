@@ -76,19 +76,62 @@ describe("sanitizeNoteContent", () => {
     });
   });
 
-  describe("imagens", () => {
-    test("remove o src e mantém apenas a referência ao asset", () => {
-      const result = sanitizeNoteContent(
-        '<img src="https://externo/x.png" data-image-id="img-1" alt="foto">'
-      );
+  describe("imagens (auto-contido, base64)", () => {
+    const dataImg = "data:image/webp;base64,UklGRhoAAABXRUJQ";
 
-      expect(result).not.toContain("src");
-      expect(result).toContain('data-image-id="img-1"');
+    test("mantém a imagem embutida como data-URI base64 e o alt", () => {
+      const result = sanitizeNoteContent(`<img src="${dataImg}" alt="foto">`);
+
+      expect(result).toContain(`src="${dataImg}"`);
       expect(result).toContain('alt="foto"');
     });
 
-    test("descarta imagem sem asset local", () => {
+    test("descarta imagem com src externo (http)", () => {
       expect(sanitizeNoteContent('<img src="https://externo/x.png">')).toBe("");
+    });
+
+    test("descarta data:image/svg+xml (vetor de script)", () => {
+      expect(sanitizeNoteContent('<img src="data:image/svg+xml;base64,PHN2Zz4=">')).toBe("");
+    });
+
+    test("descarta imagem sem src", () => {
+      expect(sanitizeNoteContent('<img alt="x">')).toBe("");
+    });
+
+    test("remove o data-image-id legado", () => {
+      const result = sanitizeNoteContent(`<img src="${dataImg}" data-image-id="img-1">`);
+
+      expect(result).not.toContain("data-image-id");
+      expect(result).toContain(`src="${dataImg}"`);
+    });
+  });
+
+  describe("tags expandidas (ADR 0006)", () => {
+    test("mantém tabela e suas células", () => {
+      const result = sanitizeNoteContent(
+        "<table><caption>t</caption><thead><tr><th>a</th></tr></thead><tbody><tr><td>b</td></tr></tbody></table>"
+      );
+
+      expect(result).toContain("<table>");
+      expect(result).toContain("<caption>t</caption>");
+      expect(result).toContain("<th>a</th>");
+      expect(result).toContain("<td>b</td>");
+    });
+
+    test("mantém H4-H6 e HR", () => {
+      expect(sanitizeNoteContent("<h4>t</h4>")).toBe("<h4>t</h4>");
+      expect(sanitizeNoteContent("<h6>t</h6>")).toBe("<h6>t</h6>");
+      expect(sanitizeNoteContent("<hr>")).toContain("<hr>");
+    });
+
+    test("mantém o destaque como <mark>", () => {
+      expect(sanitizeNoteContent("<p>uma <mark>ideia</mark></p>")).toBe(
+        "<p>uma <mark>ideia</mark></p>"
+      );
+    });
+
+    test("descarta atributos das novas tags", () => {
+      expect(sanitizeNoteContent('<td style="x" colspan="2">c</td>')).toBe("<td>c</td>");
     });
   });
 

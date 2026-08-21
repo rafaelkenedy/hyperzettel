@@ -13,10 +13,12 @@ import {
   connectionIds,
   countByFolder,
   countByKind,
+  countUniqueConnections,
   createConnectionCounts,
   createNoteRecord,
   filterAndSort,
   findRelations,
+  findTodaysDaily,
   hasMeaningfulContent,
   matchesScope,
   mergeNote,
@@ -30,6 +32,24 @@ import {
 
 /** Texto puro sem DOM: o domínio recebe essa função por parâmetro. */
 const plain = (html: string) => html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+
+describe("findTodaysDaily", () => {
+  const daily = (title: string): Note => createNoteRecord({ id: title, title, template: "daily" });
+
+  test("encontra a diária de hoje pelo título ISO", () => {
+    const notes = [daily("2026-07-23"), daily("2026-07-24")];
+    expect(findTodaysDaily(notes, "2026-07-24")?.id).toBe("2026-07-24");
+  });
+
+  test("ignora outros templates com o mesmo título (evita falso positivo)", () => {
+    const notes = [createNoteRecord({ id: "x", title: "2026-07-24", template: "concept" })];
+    expect(findTodaysDaily(notes, "2026-07-24")).toBeUndefined();
+  });
+
+  test("sem a diária de hoje, retorna undefined (então uma nova é criada)", () => {
+    expect(findTodaysDaily([daily("2026-07-23")], "2026-07-24")).toBeUndefined();
+  });
+});
 
 describe("resolvePersistedStatus", () => {
   test("autosave preserva uma nota já concluída", () => {
@@ -103,6 +123,11 @@ describe("createNoteRecord", () => {
   test("título vazio vira 'Sem título'", () => {
     expect(note({ id: "1", title: "   " }).title).toBe("Sem título");
   });
+
+  test("normaliza e limita a pergunta de recuperação", () => {
+    expect(note({ id: "1", recallPrompt: "  Por quê?  " }).recallPrompt).toBe("Por quê?");
+    expect(note({ id: "2", recallPrompt: "a".repeat(350) }).recallPrompt).toHaveLength(300);
+  });
 });
 
 describe("normalizeImportedNote", () => {
@@ -135,6 +160,14 @@ describe("normalizeImportedNote", () => {
   test("gera id quando o arquivo não traz um", () => {
     const imported = normalizeImportedNote({ title: "Sem id" }, options);
     expect(imported!.id).toBeTruthy();
+  });
+
+  test("preserva a pergunta de recuperação de backups novos", () => {
+    const imported = normalizeImportedNote(
+      { id: "a", recallPrompt: "  Qual é a relação?  " },
+      options
+    );
+    expect(imported!.recallPrompt).toBe("Qual é a relação?");
   });
 });
 
@@ -178,6 +211,27 @@ describe("createConnectionCounts", () => {
   test("ignora auto-referência e destino inexistente", () => {
     const counts = createConnectionCounts([note({ id: "a", connections: ["a", "fantasma"] })]);
     expect(counts.get("a")).toBe(0);
+  });
+});
+
+describe("countUniqueConnections", () => {
+  test("conta uma aresta recíproca uma única vez", () => {
+    expect(
+      countUniqueConnections([
+        note({ id: "a", connections: ["b"] }),
+        note({ id: "b", connections: ["a", "c"] }),
+        note({ id: "c" })
+      ])
+    ).toBe(2);
+  });
+
+  test("ignora auto-referências e destinos fora da coleção", () => {
+    expect(
+      countUniqueConnections([
+        note({ id: "a", connections: ["a", "fantasma", "b"] }),
+        note({ id: "b" })
+      ])
+    ).toBe(1);
   });
 });
 

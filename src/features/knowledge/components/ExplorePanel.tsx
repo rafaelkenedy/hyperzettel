@@ -17,7 +17,7 @@ import { LEVEL_TONE, dueSummary, percent } from "../lib/format";
 import type { FilteredGraph } from "../lib/useFilteredGraph";
 import type { GraphNote } from "../model/knowledgeModel";
 import { Legend, PanelLabel } from "./MapPrimitives";
-import { ReviewGrades } from "./ReviewGrades";
+import { ActiveRecall } from "./ActiveRecall";
 
 const FILTER_CLASS =
   "h-8 rounded-md border-border-primary bg-background-secondary px-2 text-xs";
@@ -44,6 +44,11 @@ export function ExplorePanel({
   connectionCount: number;
 }) {
   const notes = useNotes();
+  const selectedNote = selected
+    ? notes.savedNotes.find((candidate) => candidate.id === selected.id)
+    : null;
+  const canReview =
+    selectedNote?.status === "saved" && selectedNote.kind !== "fleeting";
 
   return (
     <>
@@ -126,7 +131,19 @@ export function ExplorePanel({
           </p>
 
           <div className="mt-2.5">
-            <ReviewGrades noteId={selected.id} compact />
+            {canReview ? (
+              <ActiveRecall
+                noteId={selected.id}
+                title={selected.title}
+                content={selectedNote.content}
+                recallPrompt={selectedNote.recallPrompt}
+                compact
+              />
+            ) : (
+              <p className="rounded-md bg-background-primary p-2.5 text-2xs leading-relaxed text-text-secondary">
+                Conclua a nota e processe capturas fugazes antes de revisar.
+              </p>
+            )}
           </div>
 
           <div className="mt-1.5 flex items-center gap-1.5">

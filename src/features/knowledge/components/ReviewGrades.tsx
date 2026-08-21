@@ -21,12 +21,10 @@ const TONE: Record<number, string> = {
 
 export function ReviewGrades({
   noteId,
-  onReviewed,
-  compact = false
+  onReviewed
 }: {
   noteId: string;
   onReviewed?: () => void;
-  compact?: boolean;
 }) {
   const knowledge = useKnowledge();
   const preview = knowledge.previewIntervals(noteId);
@@ -45,31 +43,31 @@ export function ReviewGrades({
 
   return (
     <div className="flex flex-col gap-1.5">
-      <div className={cn("grid gap-1", compact ? "grid-cols-4" : "grid-cols-2")}>
-      {REVIEW_QUALITIES.map((quality: Quality) => (
-        <Button
-          key={quality}
-          variant="secondary"
-          size="sm"
-          title={QUALITY_LABELS[quality].hint}
-          onClick={async () => {
-            await knowledge.reviewNote(noteId, quality);
-            onReviewed?.();
-          }}
-          className={cn(
-            "min-h-8 flex-col items-start gap-0 border-border-primary bg-background-primary px-2 py-1.5 text-left focus-visible:ring-2 focus-visible:ring-hz-accent",
-            TONE[quality]
-          )}
-        >
-          <span className="text-xs font-medium leading-tight">
-            {QUALITY_LABELS[quality].label}
-          </span>
-          {sameInterval ? null : (
-            <span className="text-2xs leading-tight text-text-secondary">
-              {preview[quality] !== undefined ? formatInterval(preview[quality]) : "—"}
+      <div className="grid grid-cols-2 gap-1">
+        {REVIEW_QUALITIES.map((quality: Quality) => (
+          <Button
+            key={quality}
+            variant="secondary"
+            size="sm"
+            title={QUALITY_LABELS[quality].hint}
+            onClick={async () => {
+              await knowledge.reviewNote(noteId, quality);
+              onReviewed?.();
+            }}
+            className={cn(
+              "min-h-8 flex-col items-start gap-0 border-border-primary bg-background-primary px-2 py-1.5 text-left focus-visible:ring-2 focus-visible:ring-hz-accent",
+              TONE[quality]
+            )}
+          >
+            <span className="text-xs font-medium leading-tight">
+              {QUALITY_LABELS[quality].label}
             </span>
-          )}
-        </Button>
+            {sameInterval ? null : (
+              <span className="text-2xs leading-tight text-text-secondary">
+                {preview[quality] !== undefined ? formatInterval(preview[quality]) : "—"}
+              </span>
+            )}
+          </Button>
         ))}
       </div>
 

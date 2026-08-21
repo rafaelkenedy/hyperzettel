@@ -32,6 +32,7 @@ import {
 
 import { useNotes } from "@/app/providers/NotesProvider";
 import { useKnowledge } from "@/app/providers/KnowledgeProvider";
+import { useNavigation } from "@/app/providers/NavigationProvider";
 import {
   FOLDER_LABELS,
   KIND_HINTS,
@@ -42,18 +43,19 @@ import {
   type TemplateId
 } from "@/domain/notes";
 import { countWords, formatFullDate, formatRelative } from "@/shared/html";
+import { formatShortcut } from "@/shared/platform";
 import { ConnectionsDialog } from "./ConnectionsDialog";
 import {
   LEVEL_TONE,
   RelatedNotes,
   RelationSettings,
   RelationStatus,
-  ReviewGrades,
   dueLabel,
   useKnowledgeRelations
 } from "@/features/knowledge";
 import { RelationRow } from "./RelationRow";
 import { KIND_TONE_CLASSES } from "../kindTones";
+import { NOTE_UI_LABELS, resolveNoteUiState } from "../noteUiState";
 
 function Row({
   icon: Icon,
@@ -123,6 +125,7 @@ type PanelFeedback = {
 export function PropertiesPanel({ onClose }: { onClose?: () => void } = {}) {
   const notes = useNotes();
   const knowledge = useKnowledge();
+  const navigation = useNavigation();
   const semanticRelations = useKnowledgeRelations();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [focusConnectionId, setFocusConnectionId] = useState<string | null>(null);
@@ -137,7 +140,10 @@ export function PropertiesPanel({ onClose }: { onClose?: () => void } = {}) {
         event.preventDefault();
         setPickerOpen(true);
       }
-      if (event.key === "Escape") setPickerOpen(false);
+      /*
+       * O Escape fica com o Dialog: só a camada mais alta do Radix deve
+       * consumi-lo. Fechar o seletor daqui atropelava overlays aninhados.
+       */
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
@@ -167,24 +173,28 @@ export function PropertiesPanel({ onClose }: { onClose?: () => void } = {}) {
 
   const words = countWords(notes.draft.content);
   const visibleRelations = showAllConnections ? notes.relations : notes.relations.slice(0, 3);
+  const noteUiState = resolveNoteUiState({
+    saving: notes.saving,
+    dirty: notes.dirty,
+    status: notes.draft.status,
+    hasPersistedNote: notes.currentNote !== null
+  });
 
   return (
     <aside className="relative flex h-full flex-col border-l border-border-primary bg-background-primary">
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border-primary px-4">
         <SlidersHorizontal className="size-3.5 text-text-secondary" strokeWidth={1.75} />
         <h2 className="flex-1 text-[13px] font-semibold">Propriedades</h2>
-        {notes.dirty || !notes.currentNote ? (
-          <span
-            className={cn(
-              "rounded-md px-1.5 py-0.5 text-2xs font-medium",
-              notes.dirty
-                ? "bg-[#fdf1dd] text-[#7a4d0d]"
-                : "bg-background-tertiary text-text-secondary"
-            )}
-          >
-            {notes.dirty ? "Não salva" : "Rascunho"}
-          </span>
-        ) : null}
+        <span
+          className={cn(
+            "rounded-md px-1.5 py-0.5 text-2xs font-medium",
+            noteUiState === "autosave-pending" || noteUiState === "updating"
+              ? "bg-[#fdf1dd] text-[#7a4d0d]"
+              : "bg-background-tertiary text-text-secondary"
+          )}
+        >
+          {NOTE_UI_LABELS[noteUiState]}
+        </span>
         {onClose ? (
           <Button
             variant="link"
@@ -331,7 +341,7 @@ export function PropertiesPanel({ onClose }: { onClose?: () => void } = {}) {
           >
             <Plus className="size-3.5" strokeWidth={2} />
             Adicionar conexão
-            <span className="ml-1 text-2xs opacity-60">⌘⇧K</span>
+            <span className="ml-1 text-2xs opacity-60">{formatShortcut("Shift+K")}</span>
           </Button>
         </div>
 
@@ -370,30 +380,78 @@ export function PropertiesPanel({ onClose }: { onClose?: () => void } = {}) {
 
         <CollapsibleSection icon={Brain} label="Aprendizagem">
           <div className="px-4 pt-1">
-            {knowledge.activeRetention ? (
-              <>
-                {knowledge.activeRetention.reviewCount ? (
-                  <div className="flex items-center gap-2">
-                    <span className={cn("rounded px-1.5 py-0.5 text-2xs font-semibold tabular-nums", LEVEL_TONE[knowledge.activeRetention.level])}>
-                      {Math.round(knowledge.activeRetention.strength * 100)}%
-                    </span>
-                    <span className="text-xs text-text-tertiary">
-                      {knowledge.activeRetention.reviewCount}{" "}
-                      {knowledge.activeRetention.reviewCount === 1 ? "revisão" : "revisões"} ·{" "}
-                      {dueLabel(knowledge.activeRetention.dueAt).replace(/\.$/, "")}
-                    </span>
-                  </div>
-                ) : (
-                  <p className="text-xs text-text-tertiary">Nunca revisada.</p>
-                )}
-                <div className="mt-2">
-                  <ReviewGrades noteId={notes.draft.id} />
-                </div>
-              </>
-            ) : (
+            {notes.draft.kind === "fleeting" ? (
+              // Nota fugaz ainda não foi destilada; revisar só faz sentido depois
+              // que ela vira permanente. Evita oferecer uma ação fora do estágio.
               <p className="py-1 text-xs text-text-secondary">
-                Salve a nota para acompanhar a retenção.
+                A revisão espaçada começa quando a nota deixa de ser fugaz — processe-a
+                para uma nota permanente primeiro.
               </p>
+            ) : (
+              <>
+                <label
+                  htmlFor="recall-prompt"
+                  className="text-2xs font-semibold uppercase tracking-[0.06em] text-text-secondary"
+                >
+                  Pergunta de recuperação
+                </label>
+                <textarea
+                  id="recall-prompt"
+                  value={notes.draft.recallPrompt}
+                  maxLength={300}
+                  rows={3}
+                  placeholder={
+                    notes.draft.title
+                      ? `O que você consegue explicar sobre “${notes.draft.title}”?`
+                      : "Que pergunta deve ser respondida sem consultar a nota?"
+                  }
+                  onChange={(event) => notes.setRecallPrompt(event.target.value)}
+                  className="mt-1 w-full resize-y rounded-md border border-border-primary bg-background-secondary px-2.5 py-2 text-xs leading-relaxed text-text-primary outline-none placeholder:text-text-secondary focus:border-hz-accent focus:ring-1 focus:ring-hz-accent"
+                />
+                <p className="mt-1 text-2xs leading-relaxed text-text-secondary">
+                  Opcional. Se ficar vazia, o título será usado como pista.
+                </p>
+
+                {!knowledge.activeRetention ? (
+                  <p className="mt-2 text-xs text-text-secondary">
+                    Conclua a nota para acompanhar a retenção.
+                  </p>
+                ) : (
+                  <>
+                    {knowledge.activeRetention.reviewCount ? (
+                      <div className="mt-2 flex items-center gap-2">
+                        <span className={cn("rounded px-1.5 py-0.5 text-2xs font-semibold tabular-nums", LEVEL_TONE[knowledge.activeRetention.level])}>
+                          {Math.round(knowledge.activeRetention.strength * 100)}%
+                        </span>
+                        <span className="text-xs text-text-tertiary">
+                          {knowledge.activeRetention.reviewCount}{" "}
+                          {knowledge.activeRetention.reviewCount === 1 ? "revisão" : "revisões"} ·{" "}
+                          {dueLabel(knowledge.activeRetention.dueAt).replace(/\.$/, "")}
+                        </span>
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-xs text-text-tertiary">Nunca revisada.</p>
+                    )}
+                    <p className="mt-2 text-2xs leading-relaxed text-text-secondary">
+                      A avaliação aparece somente depois que você tenta lembrar e revela a
+                      nota.
+                    </p>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="mt-2 h-8 border-border-primary bg-background-secondary px-2.5 text-xs focus-visible:ring-2 focus-visible:ring-hz-accent"
+                      onClick={() =>
+                        void notes.persistDraft().then((persisted) => {
+                          if (persisted) navigation.openReview(persisted.id);
+                        })
+                      }
+                      disabled={notes.saving}
+                    >
+                      Abrir revisão sem olhar
+                    </Button>
+                  </>
+                )}
+              </>
             )}
           </div>
         </CollapsibleSection>

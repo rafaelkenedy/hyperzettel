@@ -13,6 +13,16 @@ export type NoteRelation = {
   updatedAt: string;
 };
 
+/** Decisão do usuário que impede recriar uma sugestão semântica inalterada. */
+export type RejectedRelation = {
+  firstNoteId: string;
+  secondNoteId: string;
+  firstContentHash: string;
+  secondContentHash: string;
+  pipelineVersion: string;
+  rejectedAt: string;
+};
+
 export function relationIncludes(relation: NoteRelation, noteId: string): boolean {
   return relation.firstNoteId === noteId || relation.secondNoteId === noteId;
 }

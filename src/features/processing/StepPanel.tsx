@@ -271,8 +271,8 @@ export function StepPanel({
               }
               hint="Abre o seletor com o campo de motivo."
               tone="primary"
-              onClick={() => {
-                void notes.openNote(note.id);
+              onClick={async () => {
+                await notes.openNote(note.id, { navigate: false });
                 onOpenPicker();
               }}
             />

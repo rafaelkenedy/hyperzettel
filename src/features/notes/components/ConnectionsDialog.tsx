@@ -13,7 +13,7 @@ import {
   DialogTitle,
   Input
 } from "@relume_io/relume-ui";
-import { Search } from "lucide-react";
+import { Search, X } from "lucide-react";
 
 import { useNotes } from "@/app/providers/NotesProvider";
 import { ALL_SCOPE, FOLDER_LABELS, filterAndSort } from "@/domain/notes";
@@ -48,12 +48,29 @@ export function ConnectionsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* O DialogContent do Relume não define fundo próprio; sem isto o
           overlay atravessa e o conteúdo fica ilegível. */}
-      <DialogContent className="flex max-h-[80vh] max-w-lg flex-col gap-0 overflow-hidden rounded-lg border border-border-primary bg-background-primary p-0 shadow-pop">
+      <DialogContent
+        closeIconPosition="inside"
+        closeIconClassName="hidden"
+        overlayClassName="bg-black/40"
+        className="flex max-h-[80vh] max-w-lg flex-col gap-0 overflow-hidden rounded-lg border border-border-primary bg-background-primary p-0 shadow-pop"
+      >
         <DialogHeader className="border-b border-border-primary px-5 py-4">
-          <DialogTitle className="text-md">Conectar esta nota</DialogTitle>
-          <DialogDescription className="text-xs text-text-tertiary">
-            As conexões são bidirecionais: a outra nota também passa a listar esta.
-          </DialogDescription>
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0 space-y-1.5">
+              <DialogTitle className="text-md">Conectar esta nota</DialogTitle>
+              <DialogDescription className="text-xs text-text-tertiary">
+                As conexões são bidirecionais: a outra nota também passa a listar esta.
+              </DialogDescription>
+            </div>
+            <button
+              type="button"
+              onClick={() => onOpenChange(false)}
+              aria-label="Fechar"
+              className="-mr-1 -mt-0.5 grid size-7 shrink-0 place-items-center rounded-md text-text-secondary transition-colors hover:bg-hz-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hz-accent"
+            >
+              <X className="size-4" strokeWidth={1.75} />
+            </button>
+          </div>
         </DialogHeader>
 
         <div className="shrink-0 border-b border-border-primary px-5 py-3">

@@ -45,6 +45,7 @@ import {
 import { useNotes } from "@/app/providers/NotesProvider";
 import { useKnowledge } from "@/app/providers/KnowledgeProvider";
 import { useNavigation, type MapTab } from "@/app/providers/NavigationProvider";
+import { progressiveNavigationFor } from "@/features/onboarding/guidedOnboarding";
 import {
   FOLDER_LABELS,
   KIND_LABELS,
@@ -203,8 +204,7 @@ export function NavigationRail() {
   const knowledge = useKnowledge();
   const navigation = useNavigation();
   const { state } = useSidebar();
-  const folders = Object.keys(FOLDER_LABELS) as FolderId[];
-  const kinds = Object.keys(KIND_LABELS) as NoteKind[];
+  const progressive = progressiveNavigationFor(notes.notes);
   const homeActive = navigation.view === "home";
   const processActive = navigation.view === "process";
 
@@ -291,47 +291,50 @@ export function NavigationRail() {
                 count={notes.folderCounts.inbox}
                 scope={{ kind: "folder", value: "inbox" }}
               />
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  isActive={processActive}
-                  aria-current={processActive ? "page" : undefined}
-                  onClick={() => navigation.setView("process")}
-                  className={NAV_ITEM_CLASS}
-                >
-                  <SelectionMarker active={processActive} />
-                  <Layers
-                    className={navIconClass(processActive)}
-                    strokeWidth={1.75}
-                  />
-                  <span className="truncate">Processar</span>
-                </SidebarMenuButton>
-                <SidebarMenuBadge className={navBadgeClass(processActive)}>
-                  {notes.processQueue.length}
-                </SidebarMenuBadge>
-              </SidebarMenuItem>
+              {progressive.showProcess ? (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    isActive={processActive}
+                    aria-current={processActive ? "page" : undefined}
+                    onClick={() => navigation.setView("process")}
+                    className={NAV_ITEM_CLASS}
+                  >
+                    <SelectionMarker active={processActive} />
+                    <Layers
+                      className={navIconClass(processActive)}
+                      strokeWidth={1.75}
+                    />
+                    <span className="truncate">Processar</span>
+                  </SidebarMenuButton>
+                  <SidebarMenuBadge className={navBadgeClass(processActive)}>
+                    {notes.processQueue.length}
+                  </SidebarMenuBadge>
+                </SidebarMenuItem>
+              ) : null}
               <NavRow
                 icon={FileStack}
                 label="Todas as notas"
                 count={notes.folderCounts.all}
                 scope={{ kind: "all", value: "all" }}
               />
-              <NavRow
-                icon={Archive}
-                label="Arquivo"
-                count={notes.folderCounts.archive}
-                scope={{ kind: "folder", value: "archive" }}
-              />
+              {notes.folderCounts.archive ? (
+                <NavRow
+                  icon={Archive}
+                  label="Arquivo"
+                  count={notes.folderCounts.archive}
+                  scope={{ kind: "folder", value: "archive" }}
+                />
+              ) : null}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarGroup className="px-0 py-1.5">
-          <GroupLabel>Pastas</GroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {folders
-                .filter((folder) => folder !== "inbox" && folder !== "archive")
-                .map((folder) => (
+        {progressive.folderIds.length ? (
+          <SidebarGroup className="px-0 py-1.5">
+            <GroupLabel>Pastas</GroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {progressive.folderIds.map((folder) => (
                   <NavRow
                     key={folder}
                     icon={FOLDER_ICONS[folder]}
@@ -340,46 +343,55 @@ export function NavigationRail() {
                     scope={{ kind: "folder", value: folder }}
                   />
                 ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ) : null}
 
         {/*
           Navegação por estágio do ciclo, não por modelo de documento: o que
           interessa percorrer é o que ainda falta destilar, não quais notas
           usaram o mesmo gabarito.
         */}
-        <SidebarGroup className="px-0 py-1.5">
-          <GroupLabel>Ciclo</GroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {kinds.map((kind) => (
-                <NavRow
-                  key={kind}
-                  icon={KIND_ICONS[kind]}
-                  label={KIND_LABELS[kind]}
-                  count={notes.kindCounts[kind]}
-                  scope={{ kind: "kind", value: kind }}
-                />
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {progressive.kindIds.length ? (
+          <SidebarGroup className="px-0 py-1.5">
+            <GroupLabel>Ciclo</GroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {progressive.kindIds.map((kind) => (
+                  <NavRow
+                    key={kind}
+                    icon={KIND_ICONS[kind]}
+                    label={KIND_LABELS[kind]}
+                    count={notes.kindCounts[kind]}
+                    scope={{ kind: "kind", value: kind }}
+                  />
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ) : null}
 
-        <SidebarGroup className="px-0 py-1.5">
-          <GroupLabel>Aprendizagem</GroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <MapRow icon={Network} label="Mapa" tab="explore" />
-              <MapRow
-                icon={Repeat2}
-                label="A revisar"
-                tab="review"
-                badge={knowledge.snapshot.metrics.reviewDue}
-              />
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {progressive.showMap || progressive.showReview ? (
+          <SidebarGroup className="px-0 py-1.5">
+            <GroupLabel>Aprendizagem</GroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {progressive.showMap ? (
+                  <MapRow icon={Network} label="Mapa" tab="explore" />
+                ) : null}
+                {progressive.showReview ? (
+                  <MapRow
+                    icon={Repeat2}
+                    label="A revisar"
+                    tab="review"
+                    badge={knowledge.snapshot.metrics.reviewDue}
+                  />
+                ) : null}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ) : null}
       </SidebarContent>
     </Sidebar>
   );

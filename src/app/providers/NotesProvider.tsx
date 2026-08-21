@@ -26,9 +26,9 @@ import {
   createNoteRecord,
   filterAndSort,
   findRelations,
+  findTodaysDaily,
   hasMeaningfulContent,
   mergeNote,
-  needsMigration,
   resolvePersistedStatus,
   type Relation,
   type FolderId,
@@ -37,15 +37,21 @@ import {
   type Scope,
   type TemplateId
 } from "@/domain/notes";
-import { findTemplate } from "@/domain/templates";
+import { findTemplate, noteCompletionReadiness } from "@/domain/templates";
 import { toPlainText, type NoteSection } from "@/shared/html";
-import { noteRepository } from "@/infrastructure/noteRepository";
+import {
+  vaultErrorMessage,
+  vaultRepository,
+  type NoteIndexRow
+} from "@/infrastructure/vaultRepository";
 import { useAnnouncer } from "@/app/providers/AnnouncerProvider";
 import { useNavigation } from "@/app/providers/NavigationProvider";
 import {
   enqueueNoteIndexing,
   removeNoteFromKnowledgeIndex
 } from "@/features/knowledge";
+import { createGuidedTopicDraft } from "@/features/onboarding/guidedOnboarding";
+import { selectInitialNoteId } from "./noteSession";
 
 const AUTOSAVE_DELAY = 700;
 const SESSION_DRAFT_KEY = "hyperzettel-active-draft";
@@ -84,6 +90,32 @@ function emptyDraft(id = createId()): Note {
   return { ...record, title: "" };
 }
 
+/**
+ * Converte uma linha do índice numa nota "leve": o corpo guarda só o texto puro
+ * (para preview e contagem), sem o HTML pesado. O conteúdo completo é carregado
+ * sob demanda ao abrir a nota.
+ */
+function toListNote(row: NoteIndexRow): Note {
+  return createNoteRecord({
+    id: row.id,
+    title: row.title,
+    content: row.plainText,
+    recallPrompt: row.recallPrompt,
+    folder: row.folder,
+    kind: row.kind,
+    template: row.template,
+    status: row.status,
+    connections: row.connections,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
+  });
+}
+
+/** Versão leve de uma nota já carregada, para guardar na lista sem o HTML. */
+function lightNote(note: Note): Note {
+  return { ...note, content: toPlainText(note.content) };
+}
+
 export interface NotesStore {
   /** A coleção com o rascunho mesclado, para a lista refletir a digitação. */
   notes: Note[];
@@ -103,6 +135,9 @@ export interface NotesStore {
   dirty: boolean;
   saving: boolean;
   ready: boolean;
+  /** Há mudança externa aguardando uma decisão porque existe rascunho local. */
+  externalVaultChange: boolean;
+  syncingVault: boolean;
   /** Incrementa a cada carga de nota; o editor usa para repopular o DOM. */
   loadToken: number;
 
@@ -110,6 +145,7 @@ export interface NotesStore {
   setQuery: (query: string) => void;
   setTitle: (title: string) => void;
   setContent: (content: string) => void;
+  setRecallPrompt: (prompt: string) => void;
   setFolder: (folder: FolderId) => void;
   setTemplate: (template: TemplateId) => void;
   setKind: (kind: NoteKind) => void;
@@ -117,9 +153,10 @@ export interface NotesStore {
   toggleConnection: (noteId: string) => void;
   setConnectionReason: (noteId: string, reason: string) => void;
   removeConnection: (noteId: string) => void;
-  openNote: (id: string) => Promise<void>;
+  openNote: (id: string, options?: { navigate?: boolean }) => Promise<void>;
   newNote: () => Promise<void>;
   newNoteFromTemplate: (template: TemplateId) => Promise<void>;
+  startGuidedTopic: (subject: string) => Promise<void>;
   saveNow: () => Promise<void>;
   persistDraft: () => Promise<Note | null>;
   deleteActiveNote: () => Promise<void>;
@@ -128,6 +165,8 @@ export interface NotesStore {
   splitNote: (id: string, sections: NoteSection[]) => Promise<Note[] | undefined>;
   /** Recarrega tudo do disco. Usado depois de importar um backup. */
   reload: () => Promise<Note[]>;
+  /** Preserva o rascunho, quando necessário, e aceita o estado atual do vault. */
+  reloadExternalChanges: () => Promise<void>;
   adoptImported: (notes: Note[]) => void;
 }
 
@@ -145,7 +184,11 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [ready, setReady] = useState(false);
+  const [externalVaultChange, setExternalVaultChange] = useState(false);
+  const [syncingVault, setSyncingVault] = useState(false);
   const [loadToken, setLoadToken] = useState(0);
+  /** Ids que casam com a busca FTS; `null` quando não há busca ativa. */
+  const [searchIds, setSearchIds] = useState<Set<string> | null>(null);
 
   // Refs espelham o estado para que timers e handlers de evento leiam o
   // valor atual sem precisar ser recriados a cada render.
@@ -156,17 +199,35 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const revisionRef = useRef(0);
   const autosaveRef = useRef<number>(0);
   const createdInSessionRef = useRef(true);
+  const notesRef = useRef(notes);
+  const readyRef = useRef(ready);
+  const externalVaultChangeRef = useRef(externalVaultChange);
+  const vaultSyncRef = useRef(false);
+  const vaultProbeRef = useRef(false);
+  const lastVaultProbeRef = useRef(0);
+  const preservedDraftCopyRef = useRef<Note | null>(null);
 
   draftRef.current = draft;
   currentNoteRef.current = currentNote;
   dirtyRef.current = dirty;
   savingRef.current = saving;
+  notesRef.current = notes;
+  readyRef.current = ready;
+  externalVaultChangeRef.current = externalVaultChange;
 
   const persistNote = useCallback(
     async (
       requestedStatus: "draft" | "saved" = "draft",
       isManual = false
     ): Promise<Note | null> => {
+      if (externalVaultChangeRef.current) {
+        if (isManual) {
+          announce(
+            "O vault mudou fora do aplicativo. Preserve o rascunho e recarregue antes de concluir."
+          );
+        }
+        return null;
+      }
       if (savingRef.current) {
         // Uma gravação já está em curso; espera terminar antes de decidir.
         await new Promise<void>((resolve) => {
@@ -206,11 +267,11 @@ export function NotesProvider({ children }: { children: ReactNode }) {
           updatedAt: now
         });
 
-        await noteRepository.putNote(note);
+        await vaultRepository.save(note);
         setCurrentNote(note);
         currentNoteRef.current = note;
         createdInSessionRef.current = false;
-        setNotes((previous) => mergeNote(previous, note));
+        setNotes((previous) => mergeNote(previous, lightNote(note)));
         setDraft((previous) => ({ ...previous, ...note, title: previous.title }));
 
         if (savedRevision === revisionRef.current) {
@@ -224,15 +285,15 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         if (isManual) {
           announce(
             source.status === "draft"
-              ? "Rascunho concluído e salvo neste dispositivo."
-              : "Nota salva neste dispositivo."
+              ? "Nota concluída e disponível para revisão."
+              : "Alterações aplicadas agora."
           );
         }
         enqueueNoteIndexing(note);
         return note;
       } catch (error) {
         console.error(error);
-        announce("Não foi possível salvar a nota.");
+        announce(vaultErrorMessage(error, "Não foi possível atualizar o arquivo da nota."));
         return null;
       } finally {
         savingRef.current = false;
@@ -244,21 +305,50 @@ export function NotesProvider({ children }: { children: ReactNode }) {
 
   const markDirty = useCallback(() => {
     revisionRef.current += 1;
+    preservedDraftCopyRef.current = null;
     setDirty(true);
     window.clearTimeout(autosaveRef.current);
+    if (externalVaultChangeRef.current) return;
     autosaveRef.current = window.setTimeout(() => void persistNote("draft"), AUTOSAVE_DELAY);
   }, [persistNote]);
 
   const openNote = useCallback(
-    async (id: string, options: { updateHistory?: boolean } = {}) => {
-      const { updateHistory = true } = options;
+    async (
+      id: string,
+      options: { updateHistory?: boolean; navigate?: boolean } = {}
+    ) => {
+      const { updateHistory = true, navigate = true } = options;
       if (!id) return;
 
       window.clearTimeout(autosaveRef.current);
-      if (dirtyRef.current) await persistNote("draft");
-      if (id === draftRef.current.id && currentNoteRef.current) return;
+      if (dirtyRef.current) {
+        const source = draftRef.current;
+        const meaningful = hasMeaningfulContent(
+          { title: source.title, content: source.content, connections: source.connections },
+          toPlainText
+        );
+        const persisted = await persistNote("draft");
+        // Uma divergência no arquivo nunca pode transformar a navegação numa
+        // perda silenciosa do rascunho que ainda está apenas no editor.
+        if (meaningful && !persisted) return;
+      }
+      if (id === draftRef.current.id && currentNoteRef.current) {
+        // A nota já está carregada; não recarrega (preserva o cursor), mas
+        // ainda navega para a tela da nota — senão, clicá-la a partir do Início
+        // não fazia nada, porque o `return` pulava o `setView("note")`.
+        if (navigate) setView("note");
+        if (navigate && updateHistory) history.pushState({ id }, "", `#${id}`);
+        return;
+      }
 
-      const note = await noteRepository.getNote(id);
+      let note: Note | null;
+      try {
+        note = await vaultRepository.read(id);
+      } catch (error) {
+        console.error(error);
+        announce(vaultErrorMessage(error, "Não foi possível abrir esta nota."));
+        return;
+      }
       if (!note) {
         announce("Esta nota não está mais disponível.");
         return;
@@ -271,10 +361,10 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       setDraft({ ...note, title: note.title === "Sem título" ? "" : note.title });
       setDirty(false);
       setLoadToken((token) => token + 1);
-      setView("note");
+      if (navigate) setView("note");
       writeSessionDraftId(id);
       document.title = `${note.title || "Novo Zettel"} · Hyperzettel`;
-      if (updateHistory) history.pushState({ id }, "", `#${id}`);
+      if (navigate && updateHistory) history.pushState({ id }, "", `#${id}`);
     },
     [announce, persistNote, setView]
   );
@@ -283,7 +373,15 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     async (options: { updateHistory?: boolean } = {}) => {
       const { updateHistory = true } = options;
       window.clearTimeout(autosaveRef.current);
-      if (dirtyRef.current) await persistNote("draft");
+      if (dirtyRef.current) {
+        const source = draftRef.current;
+        const meaningful = hasMeaningfulContent(
+          { title: source.title, content: source.content, connections: source.connections },
+          toPlainText
+        );
+        const persisted = await persistNote("draft");
+        if (meaningful && !persisted) return;
+      }
 
       const fresh = emptyDraft();
       revisionRef.current = 0;
@@ -301,6 +399,46 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     [persistNote, setView]
   );
 
+  /**
+   * Inicia um vault vazio com uma nota de estrutura sobre um assunto real.
+   * O conteúdo nasce como rascunho e o autosave o materializa no vault; assim
+   * a primeira experiência produz conhecimento do usuário, não dados de demo.
+   */
+  const startGuidedTopic = useCallback(
+    async (subject: string) => {
+      window.clearTimeout(autosaveRef.current);
+      if (dirtyRef.current) {
+        const source = draftRef.current;
+        const meaningful = hasMeaningfulContent(
+          { title: source.title, content: source.content, connections: source.connections },
+          toPlainText
+        );
+        const persisted = await persistNote("draft");
+        if (meaningful && !persisted) return;
+      }
+
+      const guided = createGuidedTopicDraft(subject);
+      const fresh = createNoteRecord({
+        id: createId(),
+        ...guided,
+        status: "draft"
+      });
+
+      revisionRef.current = 0;
+      createdInSessionRef.current = true;
+      setCurrentNote(null);
+      currentNoteRef.current = null;
+      setDraft(fresh);
+      setLoadToken((token) => token + 1);
+      setView("note");
+      writeSessionDraftId(fresh.id);
+      history.pushState({ mode: "guided-start" }, "", "#novo");
+      markDirty();
+      announce("Mapa inicial criado. Complete o objetivo e registre sua primeira pergunta.");
+    },
+    [announce, markDirty, persistNote, setView]
+  );
+
   const updateDraft = useCallback(
     (patch: Partial<Note>) => {
       setDraft((previous) => ({ ...previous, ...patch }));
@@ -311,6 +449,10 @@ export function NotesProvider({ children }: { children: ReactNode }) {
 
   const setTitle = useCallback((title: string) => updateDraft({ title }), [updateDraft]);
   const setContent = useCallback((content: string) => updateDraft({ content }), [updateDraft]);
+  const setRecallPrompt = useCallback(
+    (recallPrompt: string) => updateDraft({ recallPrompt: recallPrompt.slice(0, 300) }),
+    [updateDraft]
+  );
   const setFolder = useCallback((folder: FolderId) => updateDraft({ folder }), [updateDraft]);
   const setTemplate = useCallback(
     (template: TemplateId) => updateDraft({ template }),
@@ -380,13 +522,13 @@ export function NotesProvider({ children }: { children: ReactNode }) {
 
   const saveNow = useCallback(async () => {
     const source = draftRef.current;
-    if (
-      !hasMeaningfulContent(
-        { title: source.title, content: source.content, connections: source.connections },
-        toPlainText
-      )
-    ) {
-      announce("Comece a escrever antes de concluir o rascunho.");
+    const readiness = noteCompletionReadiness(source, toPlainText);
+    if (readiness === "empty") {
+      announce("Escreva antes de concluir a nota.");
+      return;
+    }
+    if (readiness === "template-scaffold") {
+      announce("Substitua as instruções do modelo pelo conteúdo da nota antes de concluir.");
       return;
     }
 
@@ -404,8 +546,14 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     window.clearTimeout(autosaveRef.current);
     const id = draftRef.current.id;
     if (!createdInSessionRef.current || currentNoteRef.current) {
-      await noteRepository.deleteNote(id);
-      await removeNoteFromKnowledgeIndex(id);
+      try {
+        await vaultRepository.remove(id);
+        await removeNoteFromKnowledgeIndex(id);
+      } catch (error) {
+        console.error(error);
+        announce(vaultErrorMessage(error, "Não foi possível excluir esta nota."));
+        return;
+      }
     }
     setNotes((previous) => previous.filter((note) => note.id !== id));
     announce("Nota excluída.");
@@ -416,9 +564,29 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const newNoteFromTemplate = useCallback(
     async (templateId: TemplateId) => {
       window.clearTimeout(autosaveRef.current);
-      if (dirtyRef.current) await persistNote("draft");
+      if (dirtyRef.current) {
+        const source = draftRef.current;
+        const meaningful = hasMeaningfulContent(
+          { title: source.title, content: source.content, connections: source.connections },
+          toPlainText
+        );
+        const persisted = await persistNote("draft");
+        if (meaningful && !persisted) return;
+      }
 
       const template = findTemplate(templateId);
+
+      // A nota diária é uma por dia: se a de hoje já existe, abre em vez de
+      // duplicar (A1 do design review).
+      if (templateId === "daily" && template.title) {
+        const existing = findTodaysDaily(notesRef.current, template.title());
+        if (existing) {
+          await openNote(existing.id);
+          announce("Abrindo a nota diária de hoje.");
+          return;
+        }
+      }
+
       const fresh = createNoteRecord({
         id: createId(),
         title: template.title?.() ?? "",
@@ -443,7 +611,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       markDirty();
       announce(`Modelo aplicado: ${template.name}.`);
     },
-    [announce, markDirty, persistNote, setView]
+    [announce, markDirty, openNote, persistNote, setView]
   );
 
   /**
@@ -452,7 +620,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
    * necessariamente a que está aberta no editor.
    */
   const patchNote = useCallback(async (id: string, patch: Partial<Note>) => {
-    const stored = await noteRepository.getNote(id);
+    const stored = await vaultRepository.read(id);
     if (!stored) return;
 
     const updated = createNoteRecord({
@@ -461,9 +629,9 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       status: "saved",
       updatedAt: new Date().toISOString()
     });
-    await noteRepository.putNote(updated);
+    await vaultRepository.save(updated);
     enqueueNoteIndexing(updated);
-    setNotes((previous) => mergeNote(previous, updated));
+    setNotes((previous) => mergeNote(previous, lightNote(updated)));
 
     // Se a nota alterada é a que está aberta, o rascunho acompanha.
     if (draftRef.current.id === id) {
@@ -475,7 +643,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
 
   const removeNote = useCallback(
     async (id: string) => {
-      await noteRepository.deleteNote(id);
+      await vaultRepository.remove(id);
       await removeNoteFromKnowledgeIndex(id);
       setNotes((previous) => previous.filter((note) => note.id !== id));
       if (draftRef.current.id === id) await newNote();
@@ -490,7 +658,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
    */
   const splitNote = useCallback(
     async (id: string, sections: NoteSection[]) => {
-      const source = await noteRepository.getNote(id);
+      const source = await vaultRepository.read(id);
       if (!source || !sections.length) return;
 
       const created = sections.map((section) =>
@@ -506,9 +674,9 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         })
       );
 
-      await noteRepository.putNotes(created);
+      await vaultRepository.saveMany(created);
       created.forEach(enqueueNoteIndexing);
-      setNotes((previous) => created.reduce(mergeNote, previous));
+      setNotes((previous) => created.map(lightNote).reduce(mergeNote, previous));
       announce(
         `${created.length} ${created.length === 1 ? "nota criada" : "notas criadas"} a partir das seções.`
       );
@@ -518,10 +686,98 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   );
 
   const reload = useCallback(async () => {
-    const all = await noteRepository.getAllNotes();
+    const all = (await vaultRepository.list()).map(toListNote);
     setNotes(all);
     return all;
   }, []);
+
+  /**
+   * Aceita o estado externo sem perder uma edição local. Um rascunho sujo
+   * ganha nova identidade antes da reindexação; depois essa cópia é reaberta.
+   */
+  const reloadExternalChanges = useCallback(async () => {
+    if (vaultSyncRef.current) return;
+    vaultSyncRef.current = true;
+    setSyncingVault(true);
+    window.clearTimeout(autosaveRef.current);
+
+    try {
+      let targetId = currentNoteRef.current?.id ?? null;
+      let preserved: Note | null = null;
+      const source = draftRef.current;
+
+      // `dirty` é a autoridade aqui: apagar todo o conteúdo também é uma
+      // edição legítima e precisa sobreviver, embora o resultado pareça vazio.
+      if (dirtyRef.current) {
+        preserved = preservedDraftCopyRef.current;
+        if (!preserved) {
+          const now = new Date().toISOString();
+          preserved = createNoteRecord({
+            ...source,
+            id: createId(),
+            title: `${source.title.trim() || "Sem título"} (cópia local)`,
+            status: "draft",
+            createdAt: now,
+            updatedAt: now
+          });
+          await vaultRepository.save(preserved);
+          preservedDraftCopyRef.current = preserved;
+          enqueueNoteIndexing(preserved);
+        }
+        targetId = preserved.id;
+      }
+
+      const report = await vaultRepository.reconcileIndexWithVault();
+      const all = (await vaultRepository.list()).map(toListNote);
+      const restored = targetId ? await vaultRepository.read(targetId) : null;
+
+      setNotes(all);
+      revisionRef.current = 0;
+      setDirty(false);
+      if (restored) {
+        setCurrentNote(restored);
+        currentNoteRef.current = restored;
+        createdInSessionRef.current = false;
+        setDraft({
+          ...restored,
+          title: restored.title === "Sem título" ? "" : restored.title
+        });
+        writeSessionDraftId(restored.id);
+        document.title = `${restored.title} · Hyperzettel`;
+        setLoadToken((token) => token + 1);
+      } else if (targetId) {
+        const fresh = emptyDraft();
+        setCurrentNote(null);
+        currentNoteRef.current = null;
+        createdInSessionRef.current = true;
+        setDraft(fresh);
+        writeSessionDraftId(fresh.id);
+        document.title = "Novo Zettel · Hyperzettel";
+        setLoadToken((token) => token + 1);
+      }
+
+      externalVaultChangeRef.current = false;
+      preservedDraftCopyRef.current = null;
+      setExternalVaultChange(false);
+      if (preserved) {
+        announce(`Rascunho preservado como “${preserved.title}”. Vault recarregado.`);
+      } else if (report?.issues.length) {
+        announce(
+          `Vault recarregado; ${report.issues.length} conflito(s) permanecem isolados na Central do Vault.`
+        );
+      } else {
+        announce("Mudanças externas carregadas.");
+      }
+    } catch (error) {
+      console.error(error);
+      externalVaultChangeRef.current = true;
+      setExternalVaultChange(true);
+      announce(vaultErrorMessage(error, "Não foi possível recarregar as mudanças externas."));
+    } finally {
+      vaultSyncRef.current = false;
+      setSyncingVault(false);
+    }
+  }, [announce]);
 
   /** Reabre no editor uma nota que veio do backup, se for a que está aberta. */
   const adoptImported = useCallback((imported: Note[]) => {
@@ -542,31 +798,32 @@ export function NotesProvider({ children }: { children: ReactNode }) {
 
     (async () => {
       try {
-        await noteRepository.openDatabase();
-        const stored = await noteRepository.getAllNotes();
+        // Reconcilia nomes físicos e índice sem ler o corpo pesado quando nada
+        // mudou. Arquivos adicionados, removidos ou renomeados fora do app
+        // disparam a reconstrução a partir do vault (a fonte da verdade).
+        const report = await vaultRepository.reconcileIndexWithVault();
+        if (report?.issues.length) {
+          const names = report.issues
+            .flatMap((issue) => issue.fileNames)
+            .slice(0, 3)
+            .join(", ");
+          announce(
+            `${report.issues.length} conflito(s) de identidade não foram indexados: ${names}. ` +
+              "Revise os arquivos com hz:id ausente ou duplicado."
+          );
+        }
+        const all = (await vaultRepository.list()).map(toListNote);
         if (cancelled) return;
-
-        /*
-         * Migração para o contrato atual: notas gravadas antes do ciclo de
-         * vida não têm `kind`, e as conexões eram só ids. `createNoteRecord`
-         * preenche os dois preservando o que já existia; só as alteradas
-         * voltam para o disco.
-         */
-        const migrated: Note[] = [];
-        const all = stored.map((note) => {
-          if (!needsMigration(note)) return note;
-          const updated = createNoteRecord(note);
-          migrated.push(updated);
-          return updated;
-        });
-        if (migrated.length) await noteRepository.putNotes(migrated);
 
         setNotes(all);
 
         const hashId = location.hash.replace(/^#/, "");
-        const targetId =
-          hashId && hashId !== "novo" ? hashId : (readSessionDraftId() ?? draftRef.current.id);
-        const restored = await noteRepository.getNote(targetId);
+        const sessionId = readSessionDraftId();
+        const targetId = selectInitialNoteId(all, hashId, sessionId);
+        if (sessionId && !all.some((note) => note.id === sessionId)) {
+          writeSessionDraftId(null);
+        }
+        const restored = targetId ? await vaultRepository.read(targetId) : null;
 
         if (!cancelled && restored) {
           setCurrentNote(restored);
@@ -581,7 +838,9 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         }
       } catch (error) {
         console.error(error);
-        if (!cancelled) announce("O armazenamento local não pôde ser iniciado.");
+        if (!cancelled) {
+          announce(vaultErrorMessage(error, "O armazenamento local não pôde ser iniciado."));
+        }
       } finally {
         if (!cancelled) setReady(true);
       }
@@ -591,6 +850,59 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       cancelled = true;
     };
   }, [announce]);
+
+  // Ao retomar a janela, compara fingerprints sem tocar no índice. Mudanças
+  // limpas são carregadas; com rascunho pendente, o autosave é pausado até a
+  // pessoa preservar a edição como cópia.
+  useEffect(() => {
+    const probe = async () => {
+      if (
+        !readyRef.current ||
+        document.visibilityState === "hidden" ||
+        savingRef.current ||
+        vaultProbeRef.current ||
+        vaultSyncRef.current
+      ) {
+        return;
+      }
+      const now = Date.now();
+      if (now - lastVaultProbeRef.current < 1_000) return;
+      lastVaultProbeRef.current = now;
+      vaultProbeRef.current = true;
+      try {
+        if (!(await vaultRepository.hasExternalChanges())) return;
+        // Uma gravação iniciada depois do probe pode produzir divergência
+        // transitória entre arquivo e índice; não a rotula como edição externa.
+        if (savingRef.current) return;
+        if (dirtyRef.current) {
+          window.clearTimeout(autosaveRef.current);
+          if (!externalVaultChangeRef.current) {
+            externalVaultChangeRef.current = true;
+            setExternalVaultChange(true);
+            announce(
+              "O vault mudou fora do aplicativo. Seu rascunho foi pausado e pode ser preservado como cópia."
+            );
+          }
+          return;
+        }
+        await reloadExternalChanges();
+      } catch (error) {
+        console.error(error);
+        announce(vaultErrorMessage(error, "Não foi possível verificar mudanças no vault."));
+      } finally {
+        vaultProbeRef.current = false;
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") void probe();
+    };
+    window.addEventListener("focus", probe);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("focus", probe);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [announce, reloadExternalChanges]);
 
   // Navegação de voltar/avançar do navegador.
   useEffect(() => {
@@ -616,6 +928,26 @@ export function NotesProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => () => window.clearTimeout(autosaveRef.current), []);
 
+  // Busca no índice FTS (SQLite), com debounce. `searchIds = null` desliga o
+  // filtro; caso contrário a lista mostra só os ids que casaram.
+  useEffect(() => {
+    const term = query.trim();
+    if (!term) {
+      setSearchIds(null);
+      return;
+    }
+    let active = true;
+    const handle = window.setTimeout(() => {
+      void vaultRepository.search(term).then((ids) => {
+        if (active) setSearchIds(new Set(ids));
+      });
+    }, 150);
+    return () => {
+      active = false;
+      window.clearTimeout(handle);
+    };
+  }, [query]);
+
   /**
    * A lista precisa mostrar o rascunho em edição junto das notas gravadas,
    * para que título e pasta reflitam a digitação em tempo real.
@@ -629,10 +961,12 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     return mergeNote(notes, draft);
   }, [notes, draft, currentNote]);
 
-  const visibleNotes = useMemo(
-    () => filterAndSort(notesWithDraft, { scope, query, toPlainText }),
-    [notesWithDraft, scope, query]
-  );
+  const visibleNotes = useMemo(() => {
+    // Escopo + ordenação em memória; a busca textual vem do índice FTS.
+    const scoped = filterAndSort(notesWithDraft, { scope });
+    if (searchIds === null) return scoped;
+    return scoped.filter((note) => searchIds.has(note.id));
+  }, [notesWithDraft, scope, searchIds]);
 
   const connectionCounts = useMemo(
     () => createConnectionCounts(notesWithDraft),
@@ -674,11 +1008,14 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       dirty,
       saving,
       ready,
+      externalVaultChange,
+      syncingVault,
       loadToken,
       setScope,
       setQuery,
       setTitle,
       setContent,
+      setRecallPrompt,
       setFolder,
       setTemplate,
       setKind,
@@ -686,9 +1023,10 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       toggleConnection,
       setConnectionReason,
       removeConnection,
-      openNote: (id: string) => openNote(id),
+      openNote: (id: string, options?: { navigate?: boolean }) => openNote(id, options),
       newNote: () => newNote(),
       newNoteFromTemplate,
+      startGuidedTopic,
       saveNow,
       persistDraft,
       deleteActiveNote,
@@ -696,16 +1034,18 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       removeNote,
       splitNote,
       reload,
+      reloadExternalChanges,
       adoptImported
     }),
     [
       notesWithDraft, notes, draft, currentNote, visibleNotes, processQueue,
       connectionCounts, relations, folderCounts, kindCounts, scope, query,
-      dirty, saving, ready, loadToken, setTitle, setContent, setFolder,
+      dirty, saving, ready, externalVaultChange, syncingVault, loadToken,
+      setTitle, setContent, setRecallPrompt, setFolder,
       setTemplate, setKind, addConnection, toggleConnection, setConnectionReason,
-      removeConnection, openNote, newNote, newNoteFromTemplate, saveNow,
+      removeConnection, openNote, newNote, newNoteFromTemplate, startGuidedTopic, saveNow,
       persistDraft, deleteActiveNote, patchNote, removeNote, splitNote,
-      reload, adoptImported
+      reload, reloadExternalChanges, adoptImported
     ]
   );
 

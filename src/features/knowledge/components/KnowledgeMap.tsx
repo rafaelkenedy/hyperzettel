@@ -55,10 +55,9 @@ export function KnowledgeMap() {
     [knowledge.snapshot.edges, selectedId]
   );
 
-  /** Selecionar da fila também move o foco do grafo, que fica sempre visível. */
-  function focusNote(id: string) {
+  /** Selecionar da fila também move o foco do grafo, sem interromper a revisão. */
+  function focusNote(id: string | null) {
     setSelectedId(id);
-    navigation.setMapTab("explore");
   }
 
   const { metrics, notes } = knowledge.snapshot;
@@ -89,7 +88,10 @@ export function KnowledgeMap() {
         </header>
 
         <div className="grid shrink-0 grid-cols-2 gap-2 border-b border-border-primary p-3">
-          <Metric label="Retenção média" value={percent(metrics.average)} />
+          <Metric
+            label="Retenção média"
+            value={metrics.average === null ? "—" : percent(metrics.average)}
+          />
           <Metric label="A revisar" value={metrics.reviewDue} />
           <Metric label="Notas" value={notes.length} />
           <Metric label="Conexões fortes" value={metrics.strongEdges} />
@@ -152,7 +154,12 @@ export function KnowledgeMap() {
             </TabsContent>
 
             <TabsContent value="review" className="mt-3">
-              <ReviewQueue selectedId={selectedId} onFocus={focusNote} />
+              <ReviewQueue
+                selectedId={selectedId}
+                onFocus={focusNote}
+                requestedId={navigation.reviewTargetId}
+                onRequestConsumed={navigation.clearReviewTarget}
+              />
             </TabsContent>
           </div>
         </Tabs>

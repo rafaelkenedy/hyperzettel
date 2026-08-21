@@ -2,7 +2,11 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import type { Note } from "@/domain/notes";
-import type { NoteRelation, RelationStatus } from "@/features/knowledge/domain/relations";
+import type {
+  NoteRelation,
+  RejectedRelation,
+  RelationStatus
+} from "@/features/knowledge/domain/relations";
 
 export type RelationCommandError = {
   code: string;
@@ -115,6 +119,21 @@ export async function restoreAutomaticRelation(relation: NoteRelation): Promise<
     firstNoteId: relation.firstNoteId,
     secondNoteId: relation.secondNoteId
   });
+}
+
+export async function exportRejectedRelations(): Promise<RejectedRelation[]> {
+  if (!isTauri()) return [];
+  return invoke<RejectedRelation[]>("export_rejected_relations");
+}
+
+export async function importRejectedRelations(
+  rejectedRelations: readonly RejectedRelation[]
+): Promise<number> {
+  if (!isTauri() || rejectedRelations.length === 0) return 0;
+  const result = await invoke<{ importedCount: number }>("import_rejected_relations", {
+    rejectedRelations
+  });
+  return result.importedCount;
 }
 
 export async function removeNoteFromKnowledgeIndex(noteId: string): Promise<void> {

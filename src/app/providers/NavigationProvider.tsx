@@ -15,10 +15,15 @@ export type MapTab = "explore" | "curve" | "review";
 interface Navigation {
   view: WorkspaceView;
   mapTab: MapTab;
+  /** Nota pedida explicitamente pelo editor para uma revisão avulsa. */
+  reviewTargetId: string | null;
   setView: (view: WorkspaceView) => void;
   setMapTab: (tab: MapTab) => void;
   /** Abre o mapa, ou volta para a tela anterior se ele já estiver aberto. */
   toggleMap: (tab?: MapTab) => void;
+  /** Abre uma sessão de revisão avulsa para a nota, mesmo antes do vencimento. */
+  openReview: (noteId: string) => void;
+  clearReviewTarget: () => void;
 }
 
 const NavigationContext = createContext<Navigation | null>(null);
@@ -26,6 +31,7 @@ const NavigationContext = createContext<Navigation | null>(null);
 export function NavigationProvider({ children }: { children: ReactNode }) {
   const [view, setView] = useState<WorkspaceView>("home");
   const [mapTab, setMapTab] = useState<MapTab>("explore");
+  const [reviewTargetId, setReviewTargetId] = useState<string | null>(null);
   /** Para onde voltar quando o mapa é fechado. */
   const previousViewRef = useRef<WorkspaceView>("home");
 
@@ -39,9 +45,30 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const openReview = useCallback((noteId: string) => {
+    setReviewTargetId(noteId);
+    setMapTab("review");
+    setView((current) => {
+      if (current === "map") return "map";
+      previousViewRef.current = current;
+      return "map";
+    });
+  }, []);
+
+  const clearReviewTarget = useCallback(() => setReviewTargetId(null), []);
+
   const value = useMemo(
-    () => ({ view, mapTab, setView, setMapTab, toggleMap }),
-    [view, mapTab, toggleMap]
+    () => ({
+      view,
+      mapTab,
+      reviewTargetId,
+      setView,
+      setMapTab,
+      toggleMap,
+      openReview,
+      clearReviewTarget
+    }),
+    [view, mapTab, reviewTargetId, toggleMap, openReview, clearReviewTarget]
   );
 
   return <NavigationContext.Provider value={value}>{children}</NavigationContext.Provider>;

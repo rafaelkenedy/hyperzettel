@@ -26,7 +26,9 @@ pub trait RelationRepository: Send + Sync {
         &self,
         note_id: &str,
     ) -> Result<Vec<RejectedRelation>, RepositoryError>;
+    fn list_rejected(&self) -> Result<Vec<RejectedRelation>, RepositoryError>;
     fn put_rejected(&self, rejected: &RejectedRelation) -> Result<(), RepositoryError>;
+    fn put_rejected_many(&self, rejected: &[RejectedRelation]) -> Result<usize, RepositoryError>;
     fn delete_rejected(&self, relation_id: &str) -> Result<(), RepositoryError>;
     fn delete_relation(&self, relation_id: &str) -> Result<(), RepositoryError>;
     fn delete_for_note(&self, note_id: &str) -> Result<(), RepositoryError>;
@@ -157,36 +159,42 @@ impl RelationRepository for SqliteRelationRepository {
         })?)
     }
 
+    fn list_rejected(&self) -> Result<Vec<RejectedRelation>, RepositoryError> {
+        Ok(self.database.with_connection(|connection| {
+            let mut statement = connection.prepare(
+                "SELECT id, first_note_id, second_note_id, first_content_hash,
+                        second_content_hash, pipeline_version, rejected_at
+                 FROM rejected_note_relations
+                 ORDER BY id",
+            )?;
+            let rejected = statement
+                .query_map([], map_rejected)?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rejected)
+        })?)
+    }
+
     fn put_rejected(&self, rejected: &RejectedRelation) -> Result<(), RepositoryError> {
-        if rejected.first_note_id >= rejected.second_note_id
-            || rejected.id != relation_id(&rejected.first_note_id, &rejected.second_note_id)
-        {
+        if !valid_rejected_relation(rejected) {
             return Err(RepositoryError::InvalidData);
         }
         self.database.with_connection(|connection| {
-            connection.execute(
-                "INSERT INTO rejected_note_relations (
-                    id, first_note_id, second_note_id, first_content_hash,
-                    second_content_hash, pipeline_version, rejected_at
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-                 ON CONFLICT(id) DO UPDATE SET
-                    first_content_hash = excluded.first_content_hash,
-                    second_content_hash = excluded.second_content_hash,
-                    pipeline_version = excluded.pipeline_version,
-                    rejected_at = excluded.rejected_at",
-                params![
-                    rejected.id,
-                    rejected.first_note_id,
-                    rejected.second_note_id,
-                    rejected.first_content_hash,
-                    rejected.second_content_hash,
-                    rejected.pipeline_version,
-                    rejected.rejected_at,
-                ],
-            )?;
+            write_rejected(connection, rejected)?;
             Ok(())
         })?;
         Ok(())
+    }
+
+    fn put_rejected_many(&self, rejected: &[RejectedRelation]) -> Result<usize, RepositoryError> {
+        if rejected.iter().any(|item| !valid_rejected_relation(item)) {
+            return Err(RepositoryError::InvalidData);
+        }
+        Ok(self.database.with_transaction(|transaction| {
+            for item in rejected {
+                write_rejected(transaction, item)?;
+            }
+            Ok(rejected.len())
+        })?)
     }
 
     fn delete_rejected(&self, relation_id: &str) -> Result<(), RepositoryError> {
@@ -336,6 +344,53 @@ fn map_rejected(row: &rusqlite::Row<'_>) -> Result<RejectedRelation, rusqlite::E
     })
 }
 
+fn valid_rejected_relation(rejected: &RejectedRelation) -> bool {
+    rejected.first_note_id < rejected.second_note_id
+        && !rejected.first_note_id.is_empty()
+        && rejected.first_note_id.len() <= 256
+        && rejected.second_note_id.len() <= 256
+        && rejected.id == relation_id(&rejected.first_note_id, &rejected.second_note_id)
+        && valid_sha256(&rejected.first_content_hash)
+        && valid_sha256(&rejected.second_content_hash)
+        && !rejected.pipeline_version.is_empty()
+        && rejected.pipeline_version.len() <= 256
+        && chrono::DateTime::parse_from_rfc3339(&rejected.rejected_at).is_ok()
+}
+
+fn valid_sha256(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn write_rejected(
+    connection: &rusqlite::Connection,
+    rejected: &RejectedRelation,
+) -> Result<(), rusqlite::Error> {
+    connection.execute(
+        "INSERT INTO rejected_note_relations (
+            id, first_note_id, second_note_id, first_content_hash,
+            second_content_hash, pipeline_version, rejected_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+         ON CONFLICT(id) DO UPDATE SET
+            first_content_hash = excluded.first_content_hash,
+            second_content_hash = excluded.second_content_hash,
+            pipeline_version = excluded.pipeline_version,
+            rejected_at = excluded.rejected_at",
+        params![
+            rejected.id,
+            rejected.first_note_id,
+            rejected.second_note_id,
+            rejected.first_content_hash,
+            rejected.second_content_hash,
+            rejected.pipeline_version,
+            rejected.rejected_at,
+        ],
+    )?;
+    Ok(())
+}
+
 fn relation_origin_value(origin: RelationOrigin) -> &'static str {
     match origin {
         RelationOrigin::Automatic => "automatic",
@@ -410,6 +465,18 @@ mod tests {
             .expect("insert");
     }
 
+    fn rejected(first: &str, second: &str) -> RejectedRelation {
+        RejectedRelation {
+            id: relation_id(first, second),
+            first_note_id: first.to_owned(),
+            second_note_id: second.to_owned(),
+            first_content_hash: "a".repeat(64),
+            second_content_hash: "b".repeat(64),
+            pipeline_version: "pipeline".to_owned(),
+            rejected_at: "2026-01-01T00:00:00Z".to_owned(),
+        }
+    }
+
     #[test]
     fn replacement_removes_old_automatic_relations_and_preserves_manual_ones() {
         let database = Database::open_in_memory().expect("database");
@@ -436,15 +503,7 @@ mod tests {
     fn rejection_and_checkpoint_round_trip() {
         let database = Database::open_in_memory().expect("database");
         let repository = SqliteRelationRepository::new(database);
-        let rejected = RejectedRelation {
-            id: relation_id("a", "b"),
-            first_note_id: "a".to_owned(),
-            second_note_id: "b".to_owned(),
-            first_content_hash: "ha".to_owned(),
-            second_content_hash: "hb".to_owned(),
-            pipeline_version: "pipeline".to_owned(),
-            rejected_at: "2026-01-01T00:00:00Z".to_owned(),
-        };
+        let rejected = rejected("a", "b");
         repository.put_rejected(&rejected).expect("reject");
         assert_eq!(
             repository.get_rejected("b", "a").expect("get"),
@@ -461,5 +520,31 @@ mod tests {
         };
         repository.put_checkpoint(&checkpoint).expect("checkpoint");
         assert_eq!(repository.get_checkpoint().expect("get"), Some(checkpoint));
+    }
+
+    #[test]
+    fn rejected_relations_export_and_import_as_an_atomic_batch() {
+        let database = Database::open_in_memory().expect("database");
+        let repository = SqliteRelationRepository::new(database);
+        let first = rejected("a", "b");
+        let second = rejected("a", "c");
+
+        assert_eq!(
+            repository
+                .put_rejected_many(&[second.clone(), first.clone()])
+                .expect("import"),
+            2
+        );
+        let mut expected = vec![second, first];
+        expected.sort_by(|left, right| left.id.cmp(&right.id));
+        assert_eq!(repository.list_rejected().expect("export"), expected);
+
+        let mut invalid = rejected("b", "c");
+        invalid.first_content_hash = "not-a-sha256".to_owned();
+        assert!(matches!(
+            repository.put_rejected_many(&[invalid]),
+            Err(RepositoryError::InvalidData)
+        ));
+        assert_eq!(repository.list_rejected().expect("unchanged").len(), 2);
     }
 }

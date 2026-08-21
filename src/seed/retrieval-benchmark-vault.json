@@ -1,0 +1,205 @@
+{
+  "description": "Corpus multidomínio para materializar um vault HTML real e avaliar descoberta de relações.",
+  "notes": [
+    {
+      "key": "data-ownership",
+      "title": "Os dados continuam pertencendo ao autor",
+      "folder": "areas",
+      "kind": "permanent",
+      "content": "<h2>Ideia</h2><p>Uma ferramenta pessoal deve guardar conhecimento em formatos que sobrevivam ao próprio aplicativo. Arquivos visíveis podem ser copiados, versionados e abertos sem depender da interface original.</p><p>Conveniência não deve transformar a biblioteca do usuário em estado opaco de um banco interno.</p>",
+      "links": ["derived-index", "conflict-handling", "emergency-reserve"]
+    },
+    {
+      "key": "derived-index",
+      "title": "Índices são mapas descartáveis",
+      "folder": "resources",
+      "kind": "permanent",
+      "content": "<h2>Princípio</h2><p>A busca pode usar estruturas rápidas, mas elas não devem possuir o conteúdo. Quando o catálogo diverge dos documentos originais, ele precisa ser reconstruído de maneira determinística.</p><p>Um mapa útil acelera a viagem; ele não substitui o território.</p>",
+      "links": ["data-ownership", "atomic-save", "observability"]
+    },
+    {
+      "key": "atomic-save",
+      "title": "Publicar somente estados completos",
+      "folder": "resources",
+      "kind": "permanent",
+      "content": "<h2>Regra</h2><p>Uma gravação segura prepara o novo conteúdo separadamente e só então o torna visível. Se o processo cair no meio, leitores encontram a versão anterior ou a nova, nunca metade de cada uma.</p><p>O mesmo raciocínio ajuda a desenhar migrações e mudanças pequenas de software.</p>",
+      "links": ["derived-index", "conflict-handling", "small-pull-requests"]
+    },
+    {
+      "key": "conflict-handling",
+      "title": "Divergência deve falhar sem apagar trabalho",
+      "folder": "resources",
+      "kind": "permanent",
+      "content": "<h2>Conflitos</h2><p>Quando duas versões mudam desde a última leitura, escolher silenciosamente uma delas destrói informação. A operação deve parar, preservar as duas contribuições e mostrar evidências para uma decisão humana.</p><p>Hashes são bons detectores; não são uma política de resolução.</p>",
+      "links": ["data-ownership", "atomic-save", "incident-review"]
+    },
+    {
+      "key": "active-recall",
+      "title": "Tentar lembrar antes de consultar",
+      "folder": "areas",
+      "kind": "permanent",
+      "content": "<h2>Prática</h2><p>Reler produz familiaridade, mas responder sem olhar revela o que realmente pode ser recuperado. Uma pergunta curta antes de abrir a nota transforma estudo passivo em teste de memória.</p><p>O erro observado orienta a próxima revisão.</p>",
+      "links": ["spaced-review", "interleaving", "observability"]
+    },
+    {
+      "key": "spaced-review",
+      "title": "Rever quando o esquecimento começa",
+      "folder": "areas",
+      "kind": "permanent",
+      "content": "<h2>Ritmo</h2><p>Repetições muito próximas desperdiçam esforço; intervalos longos demais deixam a lembrança desaparecer. O calendário deve se adaptar à dificuldade demonstrada em cada tentativa.</p><p>Acertos ampliam o intervalo e falhas aproximam o próximo encontro.</p>",
+      "links": ["active-recall", "sleep-consolidation", "financial-automation"]
+    },
+    {
+      "key": "sleep-consolidation",
+      "title": "Dormir também faz parte do aprendizado",
+      "folder": "resources",
+      "kind": "permanent",
+      "content": "<h2>Consolidação</h2><p>Depois da prática, o cérebro precisa de tempo sem nova carga para estabilizar padrões. Reduzir o sono para ganhar mais uma hora de leitura pode piorar a retenção do dia inteiro.</p><p>Sessões distribuídas respeitam melhor esse processo do que uma maratona.</p>",
+      "links": ["spaced-review", "interleaving", "bread-fermentation"]
+    },
+    {
+      "key": "interleaving",
+      "title": "Misturar problemas melhora a escolha da estratégia",
+      "folder": "resources",
+      "kind": "permanent",
+      "content": "<h2>Variação</h2><p>Blocos com exercícios idênticos treinam execução, mas escondem a decisão sobre qual método usar. Alternar categorias obriga a reconhecer sinais e selecionar uma abordagem antes de calcular.</p><p>A dificuldade adicional durante o treino pode produzir transferência mais robusta.</p>",
+      "links": ["active-recall", "sleep-consolidation", "feature-flags"]
+    },
+    {
+      "key": "soil-drainage",
+      "title": "Raízes precisam de água e também de ar",
+      "folder": "areas",
+      "kind": "permanent",
+      "content": "<h2>Solo</h2><p>Terra constantemente encharcada ocupa os espaços por onde o oxigênio chegaria às raízes. Matéria orgânica e estrutura porosa ajudam a reter umidade sem transformar o vaso em lama.</p><p>Antes de regar, vale observar profundidade e velocidade de drenagem.</p>",
+      "links": ["morning-watering", "mulch-layer", "compost-balance"]
+    },
+    {
+      "key": "morning-watering",
+      "title": "Regar cedo reduz perdas e doenças",
+      "folder": "resources",
+      "kind": "permanent",
+      "content": "<h2>Horário</h2><p>No começo do dia a evaporação é menor e as folhas ainda têm tempo para secar. Molhar profundamente com menor frequência favorece raízes mais resistentes do que pequenas doses superficiais diárias.</p><p>O clima e o solo continuam sendo sinais melhores que um calendário fixo.</p>",
+      "links": ["soil-drainage", "mulch-layer", "observability"]
+    },
+    {
+      "key": "mulch-layer",
+      "title": "Cobrir o solo estabiliza o microclima",
+      "folder": "resources",
+      "kind": "permanent",
+      "content": "<h2>Cobertura</h2><p>Palha, folhas secas ou casca reduzem a incidência direta do sol, limitam plantas espontâneas e desaceleram a perda de umidade. A camada não deve encostar no caule para evitar apodrecimento.</p><p>Menos oscilação significa menos estresse para as raízes.</p>",
+      "links": ["soil-drainage", "morning-watering", "compost-balance"]
+    },
+    {
+      "key": "compost-balance",
+      "title": "Compostagem combina materiais úmidos e secos",
+      "folder": "resources",
+      "kind": "permanent",
+      "content": "<h2>Mistura</h2><p>Restos de cozinha oferecem nitrogênio e umidade; folhas, papel sem tinta e galhos finos fornecem carbono e estrutura. Cheiro forte costuma indicar excesso de material verde ou pouco ar.</p><p>Virar a pilha e ajustar a proporção recupera a decomposição aeróbica.</p>",
+      "links": ["soil-drainage", "mulch-layer", "leftover-planning"]
+    },
+    {
+      "key": "emergency-reserve",
+      "title": "Liquidez compra tempo para decidir",
+      "folder": "areas",
+      "kind": "permanent",
+      "content": "<h2>Reserva</h2><p>Dinheiro disponível para imprevistos evita que uma urgência vire dívida cara. O valor adequado depende da estabilidade da renda, das obrigações mensais e da velocidade para reduzir despesas.</p><p>O objetivo não é maximizar retorno, mas preservar opções quando algo quebra.</p>",
+      "links": ["sinking-funds", "debt-avalanche", "data-ownership"]
+    },
+    {
+      "key": "sinking-funds",
+      "title": "Despesas previsíveis não são emergências",
+      "folder": "resources",
+      "kind": "permanent",
+      "content": "<h2>Provisões</h2><p>Seguro anual, manutenção e presentes chegam em datas conhecidas. Separar pequenas parcelas todo mês transforma uma conta grande em fluxo regular e protege a reserva destinada ao inesperado.</p><p>Cada objetivo pode ter saldo e prazo próprios.</p>",
+      "links": ["emergency-reserve", "financial-automation", "leftover-planning"]
+    },
+    {
+      "key": "debt-avalanche",
+      "title": "Atacar primeiro o juro mais alto",
+      "folder": "resources",
+      "kind": "permanent",
+      "content": "<h2>Prioridade</h2><p>Depois dos pagamentos mínimos, direcionar o excedente para a dívida de maior taxa reduz o custo total. A estratégia matematicamente eficiente precisa conviver com motivação e margem para imprevistos.</p><p>Sem uma pequena reserva, qualquer choque pode reabrir o ciclo do crédito.</p>",
+      "links": ["emergency-reserve", "financial-automation", "small-pull-requests"]
+    },
+    {
+      "key": "financial-automation",
+      "title": "Boas decisões podem virar padrões automáticos",
+      "folder": "resources",
+      "kind": "permanent",
+      "content": "<h2>Sistema</h2><p>Transferências programadas logo após a renda reduzem a dependência de força de vontade. A automação deve ser revisada quando salário, metas ou despesas mudarem.</p><p>Um sistema simples e observável costuma durar mais que um orçamento perfeito e trabalhoso.</p>",
+      "links": ["sinking-funds", "debt-avalanche", "spaced-review"]
+    },
+    {
+      "key": "mise-en-place",
+      "title": "Preparar antes de acender o fogo",
+      "folder": "areas",
+      "kind": "permanent",
+      "content": "<h2>Organização</h2><p>Ler a receita inteira, cortar ingredientes e separar utensílios reduz decisões durante as etapas irreversíveis. A bancada organizada também torna ausências visíveis antes que a panela esteja quente.</p><p>Preparação compra atenção para temperatura, textura e tempo.</p>",
+      "links": ["heat-control", "emulsion-control", "small-pull-requests"]
+    },
+    {
+      "key": "heat-control",
+      "title": "A panela responde à energia, não ao relógio",
+      "folder": "resources",
+      "kind": "permanent",
+      "content": "<h2>Temperatura</h2><p>Receitas oferecem minutos como aproximação, mas espessura, material da panela e potência do fogão mudam o resultado. Cor, som e velocidade de evaporação são sinais mais confiáveis.</p><p>Ajustes pequenos e frequentes evitam passar do ponto.</p>",
+      "links": ["mise-en-place", "emulsion-control", "observability"]
+    },
+    {
+      "key": "emulsion-control",
+      "title": "Unir água e gordura exige dispersão",
+      "folder": "resources",
+      "kind": "permanent",
+      "content": "<h2>Molhos</h2><p>Gotículas pequenas permanecem suspensas quando a gordura entra aos poucos sob agitação. Mostarda, gema e outros emulsificantes ajudam a estabilizar a interface.</p><p>Se o molho separar, recomeçar com uma fase aquosa limpa pode recuperá-lo.</p>",
+      "links": ["mise-en-place", "heat-control", "conflict-handling"]
+    },
+    {
+      "key": "bread-fermentation",
+      "title": "A massa precisa de tempo para criar sabor",
+      "folder": "resources",
+      "kind": "permanent",
+      "content": "<h2>Fermentação</h2><p>Temperaturas baixas desaceleram a levedura e ampliam o período em que aromas se desenvolvem. O volume e a elasticidade dizem mais que uma duração fixa.</p><p>Pressa pode ser compensada com calor, mas não produz exatamente o mesmo pão.</p>",
+      "links": ["heat-control", "sleep-consolidation", "compost-balance"]
+    },
+    {
+      "key": "leftover-planning",
+      "title": "Sobras são ingredientes da próxima refeição",
+      "folder": "resources",
+      "kind": "permanent",
+      "content": "<h2>Planejamento</h2><p>Arroz, legumes assados e molhos podem nascer em quantidade maior quando já existe um destino para o excedente. Pensar na transformação seguinte reduz desperdício sem obrigar a repetir exatamente o mesmo prato.</p><p>Etiquetas com data e uma revisão semanal da geladeira tornam o estoque visível.</p>",
+      "links": ["mise-en-place", "compost-balance", "sinking-funds"]
+    },
+    {
+      "key": "small-pull-requests",
+      "title": "Mudanças pequenas recebem revisão melhor",
+      "folder": "areas",
+      "kind": "permanent",
+      "content": "<h2>Entrega</h2><p>Uma alteração com propósito único permite compreender impacto, testar hipóteses e reverter com segurança. Grandes pacotes misturam decisões independentes e escondem riscos entre linhas corretas.</p><p>Dividir não significa perder a visão do objetivo maior.</p>",
+      "links": ["feature-flags", "incident-review", "atomic-save"]
+    },
+    {
+      "key": "observability",
+      "title": "Sistemas devem explicar o próprio estado",
+      "folder": "resources",
+      "kind": "permanent",
+      "content": "<h2>Sinais</h2><p>Logs, métricas e rastros reduzem a distância entre o que deveria acontecer e o que realmente aconteceu. Instrumentação útil responde perguntas operacionais, em vez de apenas acumular eventos.</p><p>O diagnóstico começa com evidência antes de começar com correção.</p>",
+      "links": ["incident-review", "feature-flags", "derived-index", "morning-watering"]
+    },
+    {
+      "key": "incident-review",
+      "title": "Falhas merecem aprendizado sem caça a culpados",
+      "folder": "resources",
+      "kind": "permanent",
+      "content": "<h2>Revisão</h2><p>Um incidente revela condições do sistema, lacunas de detecção e decisões razoáveis tomadas com informação incompleta. A análise deve reconstruir a sequência e produzir ações verificáveis.</p><p>Explicações centradas em uma pessoa impedem que a organização corrija o ambiente.</p>",
+      "links": ["observability", "small-pull-requests", "conflict-handling"]
+    },
+    {
+      "key": "feature-flags",
+      "title": "Separar publicação de ativação",
+      "folder": "resources",
+      "kind": "permanent",
+      "content": "<h2>Controle</h2><p>Uma funcionalidade pode chegar ao executável sem ficar disponível para todos. Chaves de ativação permitem exposição gradual, comparação e recuo rápido quando os sinais pioram.</p><p>Flags antigas precisam de prazo para não virarem configuração permanente.</p>",
+      "links": ["small-pull-requests", "observability", "interleaving"]
+    }
+  ]
+}

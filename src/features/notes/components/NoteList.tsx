@@ -39,9 +39,7 @@ function NoteCard({
       ? ""
       : contentText;
   const statusLabel = isActive && isDirty
-    ? note.status === "draft"
-      ? "Rascunho · alterações pendentes"
-      : "Alterações pendentes"
+    ? "Autosave pendente"
     : note.status === "draft"
       ? "Rascunho"
       : null;

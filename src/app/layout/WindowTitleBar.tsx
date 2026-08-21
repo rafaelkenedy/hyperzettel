@@ -9,9 +9,21 @@ import {
 } from "@relume_io/relume-ui";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ArrowLeft, ArrowRight, Copy, FileDown, FileUp, Menu, Minus, Square, X } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Copy,
+  Database,
+  FileDown,
+  FileUp,
+  Menu,
+  Minus,
+  Square,
+  X
+} from "lucide-react";
 
 import { useBackup } from "@/app/useBackup";
+import { VaultCenter } from "@/features/vault";
 
 type NavigationAvailability = EventTarget & {
   readonly canGoBack: boolean;
@@ -67,6 +79,7 @@ export function WindowTitleBar() {
   const importInputRef = useRef<HTMLInputElement>(null);
   const { canGoBack, canGoForward } = useHistoryAvailability();
   const [maximized, setMaximized] = useState(false);
+  const [vaultCenterOpen, setVaultCenterOpen] = useState(false);
 
   useEffect(() => {
     if (!runningInTauri) return;
@@ -102,26 +115,43 @@ export function WindowTitleBar() {
   const run = (action: string, operation: () => Promise<void>) => {
     void operation().catch((error) => reportWindowError(action, error));
   };
+  const backupRecommended =
+    backup.backupStatus.state === "never" || backup.backupStatus.state === "due";
 
   return (
     <header className="flex h-8 shrink-0 select-none border-b border-border-primary bg-hz-rail text-text-primary">
       <nav className="flex h-full shrink-0" aria-label="Menu e histórico">
         <DropdownMenu>
           <DropdownMenuTrigger
-            className="grid h-8 w-[var(--navigation-rail-compact-width)] place-items-center border-0 p-0 pl-1 text-text-secondary hover:bg-hz-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-hz-accent data-[state=open]:bg-hz-hover data-[state=open]:text-text-primary"
-            aria-label="Abrir menu do Hyperzettel"
-            title="Menu"
+            className="relative grid h-8 w-[var(--navigation-rail-compact-width)] place-items-center border-0 p-0 pl-1 text-text-secondary hover:bg-hz-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-hz-accent data-[state=open]:bg-hz-hover data-[state=open]:text-text-primary"
+            aria-label={
+              backupRecommended
+                ? "Abrir menu do Hyperzettel; backup recomendado"
+                : "Abrir menu do Hyperzettel"
+            }
+            title={backupRecommended ? "Menu · backup recomendado" : "Menu"}
           >
             {/* O recuo replica a assimetria óptica dos botões da lateral. */}
             <Menu className="size-[18px]" strokeWidth={1.75} aria-hidden="true" />
+            {backupRecommended ? (
+              <span
+                className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-[#b77a16]"
+                aria-hidden="true"
+              />
+            ) : null}
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="start"
             sideOffset={4}
             className="z-[100] min-w-60 rounded-lg border border-border-primary bg-background-primary p-1.5 shadow-pop"
           >
-            <DropdownMenuLabel className="px-2 py-1.5 text-2xs font-semibold uppercase tracking-[0.07em] text-text-secondary">
-              Backup das notas
+            <DropdownMenuLabel className="flex items-center justify-between gap-3 px-2 py-1.5 text-2xs font-semibold uppercase tracking-[0.07em] text-text-secondary">
+              <span>Backup das notas</span>
+              {backupRecommended ? (
+                <span className="rounded-full bg-[#f6e8bd] px-1.5 py-0.5 text-[9px] tracking-normal text-[#7a5411]">
+                  Recomendado
+                </span>
+              ) : null}
             </DropdownMenuLabel>
             <DropdownMenuSeparator className="my-1 bg-border-primary" />
             <DropdownMenuItem
@@ -134,9 +164,22 @@ export function WindowTitleBar() {
             <DropdownMenuItem
               className="flex cursor-default items-center gap-2.5 rounded-md px-2 py-2 text-xs text-text-primary outline-none data-[highlighted]:bg-hz-hover"
               onSelect={() => void backup.exportNotes()}
+              disabled={backup.exporting}
             >
               <FileDown className="size-4 text-text-secondary" strokeWidth={1.75} />
-              Exportar backup JSON
+              {backup.exporting
+                ? "Preparando backup…"
+                : backupRecommended
+                  ? "Fazer backup recomendado"
+                  : "Exportar backup JSON"}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator className="my-1 bg-border-primary" />
+            <DropdownMenuItem
+              className="flex cursor-default items-center gap-2.5 rounded-md px-2 py-2 text-xs text-text-primary outline-none data-[highlighted]:bg-hz-hover"
+              onSelect={() => setVaultCenterOpen(true)}
+            >
+              <Database className="size-4 text-text-secondary" strokeWidth={1.75} />
+              Central do Vault
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -214,6 +257,13 @@ export function WindowTitleBar() {
           event.target.value = "";
           if (file) void backup.importNotes(file);
         }}
+      />
+      <VaultCenter
+        open={vaultCenterOpen}
+        onOpenChange={setVaultCenterOpen}
+        backupStatus={backup.backupStatus}
+        backupExporting={backup.exporting}
+        onExportBackup={() => void backup.exportNotes()}
       />
     </header>
   );

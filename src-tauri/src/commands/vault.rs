@@ -1,0 +1,319 @@
+use std::process::Command;
+
+use serde::Serialize;
+use sha2::{Digest, Sha256};
+
+use crate::{
+    commands::notes::document_declares_id,
+    database::DatabaseError,
+    note_index::{NoteIndexRow, SqliteNoteIndex},
+    state::AppState,
+    vault::{VaultError, VaultStore, MAX_NOTE_DOCUMENT_BYTES},
+};
+
+/// Erro de comando do vault entregue ao frontend. Mantém `code` estável para o
+/// front decidir o tratamento e `message` diagnóstica (valor + forma esperada).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultCommandError {
+    pub code: String,
+    pub message: String,
+}
+
+impl From<VaultError> for VaultCommandError {
+    fn from(error: VaultError) -> Self {
+        Self {
+            code: error_code(&error).to_owned(),
+            message: error.to_string(),
+        }
+    }
+}
+
+impl From<DatabaseError> for VaultCommandError {
+    fn from(error: DatabaseError) -> Self {
+        Self {
+            code: "index_error".to_owned(),
+            message: error.to_string(),
+        }
+    }
+}
+
+fn error_code(error: &VaultError) -> &'static str {
+    match error {
+        VaultError::RootNotDirectory(_) => "vault_root_invalid",
+        VaultError::UnsafeFileName(_) => "unsafe_file_name",
+        VaultError::PathEscapesVault { .. } => "path_escapes_vault",
+        VaultError::UnsafeFileType(_) => "unsafe_file_type",
+        VaultError::DocumentTooLarge { .. } => "note_document_too_large",
+        VaultError::ContentChanged(_) => "vault_content_changed",
+        VaultError::LockPoisoned => "vault_lock_poisoned",
+        VaultError::Io { .. } => "io_error",
+    }
+}
+
+/// Um documento de nota lido do vault: nome de arquivo + HTML auto-contido.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteFile {
+    pub file_name: String,
+    pub html: Option<String>,
+    pub content_hash: String,
+    pub size_bytes: u64,
+    pub max_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteFileFingerprint {
+    pub file_name: String,
+    pub content_hash: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultInfo {
+    pub root_path: String,
+    pub file_count: usize,
+    pub total_bytes: u64,
+}
+
+/// Informações físicas que tornam a propriedade do vault visível na interface.
+#[tauri::command]
+pub async fn get_vault_info(
+    state: tauri::State<'_, AppState>,
+) -> Result<VaultInfo, VaultCommandError> {
+    let (file_count, total_bytes) = state.vault.statistics()?;
+    Ok(VaultInfo {
+        root_path: state.vault.root().display().to_string(),
+        file_count,
+        total_bytes,
+    })
+}
+
+/// Abre o diretório no Explorer. O caminho vem do estado construído pela
+/// aplicação, não de entrada arbitrária do frontend.
+#[tauri::command]
+pub async fn open_vault_folder(state: tauri::State<'_, AppState>) -> Result<(), VaultCommandError> {
+    Command::new("explorer.exe")
+        .arg(state.vault.root())
+        .spawn()
+        .map_err(|source| VaultError::io("open", state.vault.root(), source))?;
+    Ok(())
+}
+
+/// Adota um HTML que ainda não pertence ao índice, preservando seu nome
+/// físico. O hash impede que uma edição concorrente seja sobrescrita entre a
+/// prévia na interface e a confirmação do usuário.
+#[tauri::command]
+pub async fn adopt_note_file(
+    state: tauri::State<'_, AppState>,
+    row: NoteIndexRow,
+    expected_hash: String,
+    html: String,
+) -> Result<(), VaultCommandError> {
+    adopt_note_document(&state.vault, &state.note_index, row, &expected_hash, &html)
+}
+
+fn adopt_note_document(
+    vault: &VaultStore,
+    note_index: &SqliteNoteIndex,
+    mut row: NoteIndexRow,
+    expected_hash: &str,
+    html: &str,
+) -> Result<(), VaultCommandError> {
+    if !document_declares_id(html, &row.id) {
+        return Err(VaultCommandError {
+            code: "vault_identity_mismatch".to_owned(),
+            message: format!("the note document does not declare hz:id '{}'", row.id),
+        });
+    }
+    if note_index.file_record(&row.id)?.is_some() {
+        return Err(VaultCommandError {
+            code: "adopt_id_exists".to_owned(),
+            message: format!("note id '{}' is already indexed", row.id),
+        });
+    }
+    if note_index.id_for_file_name(&row.file_name)?.is_some() {
+        return Err(VaultCommandError {
+            code: "adopt_file_indexed".to_owned(),
+            message: format!("file '{}' is already indexed", row.file_name),
+        });
+    }
+
+    vault.write_note_if_unchanged(&row.file_name, expected_hash, html)?;
+    // O índice registra exatamente a versão que este comando publicou. Ler o
+    // arquivo de novo aqui poderia mascarar uma edição externa ocorrida logo
+    // após o rename, associando metadados locais ao hash do conteúdo alheio.
+    row.content_hash = hex::encode(Sha256::digest(html.as_bytes()));
+    note_index.upsert(&row)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use sha2::{Digest, Sha256};
+
+    use crate::{
+        database::Database,
+        note_index::{IndexConnection, NoteIndexRow, SqliteNoteIndex},
+        vault::VaultStore,
+    };
+
+    use super::{adopt_note_document, NoteFile, VaultCommandError};
+
+    static COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+    fn fixture() -> (VaultStore, SqliteNoteIndex) {
+        let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!("hz-adopt-{}-{unique}", std::process::id()));
+        let vault = VaultStore::open(root.join("vault")).expect("vault");
+        let database = Database::open(&root.join("index.sqlite")).expect("database");
+        (vault, SqliteNoteIndex::new(database))
+    }
+
+    fn row() -> NoteIndexRow {
+        NoteIndexRow {
+            id: "adopted-id".to_owned(),
+            file_name: "manual.html".to_owned(),
+            title: "Manual".to_owned(),
+            folder: "inbox".to_owned(),
+            kind: "fleeting".to_owned(),
+            template: "blank".to_owned(),
+            status: "saved".to_owned(),
+            plain_text: "conteúdo".to_owned(),
+            recall_prompt: "O que este conteúdo afirma?".to_owned(),
+            content_hash: String::new(),
+            created_at: "2026-07-26T20:00:00.000Z".to_owned(),
+            updated_at: "2026-07-26T20:00:00.000Z".to_owned(),
+            connections: Vec::<IndexConnection>::new(),
+        }
+    }
+
+    #[test]
+    fn adoption_preserves_name_and_indexes_the_new_identity() {
+        let (vault, index) = fixture();
+        let original = "<html><body>manual</body></html>";
+        let adopted = r#"<meta name="hz:id" content="adopted-id"><p>conteúdo</p>"#;
+        vault.write_note("manual.html", original).unwrap();
+        let expected_hash = vault.note_hash("manual.html").unwrap();
+
+        adopt_note_document(&vault, &index, row(), &expected_hash, adopted).unwrap();
+
+        assert_eq!(vault.read_note("manual.html").unwrap(), adopted);
+        let (file_name, indexed_hash) = index.file_record("adopted-id").unwrap().unwrap();
+        assert_eq!(file_name, "manual.html");
+        assert_eq!(
+            indexed_hash,
+            hex::encode(Sha256::digest(adopted.as_bytes()))
+        );
+    }
+
+    #[test]
+    fn adoption_rejects_a_changed_file_without_overwriting_it() {
+        let (vault, index) = fixture();
+        let original = "<html><body>original</body></html>";
+        vault.write_note("manual.html", original).unwrap();
+
+        let error = adopt_note_document(
+            &vault,
+            &index,
+            row(),
+            "outdated-hash",
+            r#"<meta name="hz:id" content="adopted-id">"#,
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, "vault_content_changed");
+        assert_eq!(vault.read_note("manual.html").unwrap(), original);
+        assert!(index.file_record("adopted-id").unwrap().is_none());
+    }
+
+    #[test]
+    fn adoption_rejects_identity_mismatch_without_overwriting_the_file() {
+        let (vault, index) = fixture();
+        let original = "<html><body>original</body></html>";
+        vault.write_note("manual.html", original).unwrap();
+        let expected_hash = vault.note_hash("manual.html").unwrap();
+
+        let error = adopt_note_document(
+            &vault,
+            &index,
+            row(),
+            &expected_hash,
+            r#"<meta name="hz:id" content="another-id">"#,
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, "vault_identity_mismatch");
+        assert_eq!(vault.read_note("manual.html").unwrap(), original);
+        assert!(index.file_record("adopted-id").unwrap().is_none());
+    }
+
+    #[test]
+    fn oversized_document_contract_uses_a_stable_code_and_null_html() {
+        let error = VaultCommandError::from(crate::vault::VaultError::DocumentTooLarge {
+            file_name: "grande.html".to_owned(),
+            actual_bytes: 30_000_000,
+            max_bytes: crate::vault::MAX_NOTE_DOCUMENT_BYTES,
+        });
+        assert_eq!(error.code, "note_document_too_large");
+
+        let json = serde_json::to_value(NoteFile {
+            file_name: "grande.html".to_owned(),
+            html: None,
+            content_hash: "oversized:30000000".to_owned(),
+            size_bytes: 30_000_000,
+            max_bytes: crate::vault::MAX_NOTE_DOCUMENT_BYTES,
+        })
+        .unwrap();
+        assert!(json["html"].is_null());
+        assert_eq!(json["sizeBytes"], 30_000_000);
+        assert_eq!(json["maxBytes"], crate::vault::MAX_NOTE_DOCUMENT_BYTES);
+    }
+
+    #[test]
+    fn concurrent_content_change_uses_the_frontend_conflict_code() {
+        let error = VaultCommandError::from(crate::vault::VaultError::ContentChanged(
+            "nota.html".to_owned(),
+        ));
+        assert_eq!(error.code, "vault_content_changed");
+    }
+}
+
+/// Nomes físicos dos documentos no vault, sem ler o conteúdo pesado. Usado
+/// para detectar arquivos adicionados, removidos ou renomeados fora do app.
+#[tauri::command]
+pub async fn list_note_files(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<NoteFileFingerprint>, VaultCommandError> {
+    Ok(state
+        .vault
+        .list_note_fingerprints()?
+        .into_iter()
+        .map(|(file_name, content_hash)| NoteFileFingerprint {
+            file_name,
+            content_hash,
+        })
+        .collect())
+}
+
+/// Todos os documentos do vault de uma vez - usado só na reindexação, não no
+/// carregamento normal (que passa pelo índice, sem tocar os arquivos pesados).
+#[tauri::command]
+pub async fn read_all_note_files(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<NoteFile>, VaultCommandError> {
+    let documents = state.vault.read_all_documents()?;
+    Ok(documents
+        .into_iter()
+        .map(|document| NoteFile {
+            file_name: document.file_name,
+            html: document.html,
+            content_hash: document.content_hash,
+            size_bytes: document.size_bytes,
+            max_bytes: MAX_NOTE_DOCUMENT_BYTES,
+        })
+        .collect())
+}

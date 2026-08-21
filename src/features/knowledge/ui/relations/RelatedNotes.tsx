@@ -1,4 +1,4 @@
-import { Link2, LoaderCircle, Sparkles, X } from "lucide-react";
+import { Link2, LoaderCircle, X } from "lucide-react";
 import { useState } from "react";
 
 import type { Note } from "@/domain/notes";
@@ -95,10 +95,9 @@ export function RelatedNotes({
                   ) : null}
                 </button>
               </div>
+              {/* O cabeçalho "Sugestões de conexão" já diz que são automáticas;
+                  repetir em cada card era ruído. */}
               <div className="mt-1.5 flex items-center gap-1">
-                <span className="flex min-w-0 items-center gap-1 truncate text-2xs font-medium uppercase tracking-[0.06em] text-text-secondary">
-                  <Sparkles className="size-2.5 shrink-0" /> sugestão automática
-                </span>
                 <button
                   type="button"
                   onClick={() => {

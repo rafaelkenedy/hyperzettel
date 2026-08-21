@@ -66,6 +66,8 @@ export interface GraphNote extends NoteInfo {
   id: string;
   title: string;
   folder: string;
+  kind: Note["kind"];
+  status: Note["status"];
   connections: string[];
   updatedAt: string;
 }
@@ -75,7 +77,8 @@ export interface KnowledgeSnapshot {
   notes: GraphNote[];
   edges: EdgeInfo[];
   metrics: {
-    average: number;
+    /** Nulo quando ainda não existe nenhuma nota elegível para revisão. */
+    average: number | null;
     strongEdges: number;
     mediumEdges: number;
     weakEdges: number;
@@ -89,9 +92,21 @@ export interface CurvePoint {
 }
 
 export type ReviewResult =
-  | { ok: false; reason: "missing" }
+  | { ok: false; reason: "missing" | "ineligible" }
   | { ok: true; repeated: true; note: NoteInfo | null }
   | { ok: true; repeated: false; reinforcedEdges: number; note: NoteInfo | null };
+
+export function isReviewEligible(note: Pick<Note, "kind" | "status">): boolean {
+  return note.status === "saved" && note.kind !== "fleeting";
+}
+
+export function isReviewDue(
+  note: Pick<GraphNote, "kind" | "status" | "dueAt" | "strength">,
+  at: number = Date.now()
+): boolean {
+  if (!isReviewEligible(note)) return false;
+  return note.dueAt ? Date.parse(note.dueAt) <= at : note.strength < 0.55;
+}
 
 function emptyState(): KnowledgeState {
   return { version: 1, notes: {}, edges: {} };
@@ -193,12 +208,38 @@ export function createKnowledgeModel(initialState: unknown = null) {
    */
   function sync(notes: Note[], at: number = Date.now()): KnowledgeSnapshot {
     const list = Array.isArray(notes) ? notes : [];
+    const previousNoteIndex = noteIndex;
     noteIndex = new Map(list.map((note) => [String(note.id), note]));
     const validIds = new Set(noteIndex.keys());
 
     list.forEach((note) => {
       const id = String(note.id);
-      if (state.notes[id]) return;
+      const existing = state.notes[id];
+      if (existing) {
+        const previous = previousNoteIndex.get(id);
+        const becameReviewEligible =
+          previous &&
+          !isReviewEligible(previous) &&
+          isReviewEligible(note);
+
+        /*
+         * Captura e autoria podem acontecer dias antes da conclusão. Uma nota
+         * nunca revisada começa a esquecer quando se torna revisável, não
+         * quando o primeiro rascunho foi salvo. Histórico existente jamais é
+         * reiniciado por uma troca posterior de estágio.
+         */
+        if (
+          becameReviewEligible &&
+          existing.reviewCount === 0 &&
+          !existing.lastReviewedAt &&
+          existing.history.length === 0
+        ) {
+          existing.baselineAt = dateNotAfter(note.updatedAt || note.createdAt, at);
+          existing.dueAt = null;
+          Object.assign(existing, initialSchedule(policy.initialNoteInterval));
+        }
+        return;
+      }
       state.notes[id] = {
         createdAt: dateNotAfter(note.createdAt, at),
         baselineAt: dateNotAfter(note.updatedAt || note.createdAt, at),
@@ -269,6 +310,8 @@ export function createKnowledgeModel(initialState: unknown = null) {
         id: String(note.id),
         title: String(note.title),
         folder: String(note.folder || "inbox"),
+        kind: note.kind,
+        status: note.status,
         connections: connectionIds(normalizeConnections(note.connections)),
         updatedAt: safeDate(note.updatedAt || note.createdAt),
         ...(info as NoteInfo)
@@ -279,9 +322,11 @@ export function createKnowledgeModel(initialState: unknown = null) {
       .map((id) => edgeInfo(id, at))
       .filter((edge): edge is EdgeInfo => edge !== null);
 
-    const average = notes.length
-      ? notes.reduce((sum, note) => sum + note.strength, 0) / notes.length
-      : 0;
+    const reviewableNotes = notes.filter(isReviewEligible);
+    const average = reviewableNotes.length
+      ? reviewableNotes.reduce((sum, note) => sum + note.strength, 0) /
+        reviewableNotes.length
+      : null;
 
     return {
       at: new Date(at).toISOString(),
@@ -293,9 +338,7 @@ export function createKnowledgeModel(initialState: unknown = null) {
         mediumEdges: edges.filter((edge) => edge.level === "medium").length,
         weakEdges: edges.filter((edge) => edge.level === "weak").length,
         /* Vencidas de fato: nunca revisadas contam quando a estimativa cai. */
-        reviewDue: notes.filter((note) =>
-          note.dueAt ? Date.parse(note.dueAt) <= at : note.strength < 0.55
-        ).length
+        reviewDue: notes.filter((note) => isReviewDue(note, at)).length
       }
     };
   }
@@ -316,6 +359,8 @@ export function createKnowledgeModel(initialState: unknown = null) {
     const key = String(id);
     const item = state.notes[key];
     if (!item || !isValidDate(at)) return { ok: false, reason: "missing" };
+    const source = noteIndex.get(key);
+    if (!source || !isReviewEligible(source)) return { ok: false, reason: "ineligible" };
 
     if (
       item.lastReviewedAt &&
@@ -382,13 +427,15 @@ export function createKnowledgeModel(initialState: unknown = null) {
   }
 
   function curve(days: number | "all" = 30, now: number = Date.now()): CurvePoint[] {
-    const indexedNotes = [...noteIndex.keys()].map((id) => ({
-      id,
-      createdAt: state.notes[id]?.createdAt
-    }));
+    const indexedNotes = [...noteIndex.values()]
+      .filter(isReviewEligible)
+      .map((note) => ({
+        id: String(note.id),
+        startedAt: state.notes[String(note.id)]?.baselineAt
+      }));
     const oldest =
       indexedNotes
-        .map((note) => Date.parse(note.createdAt ?? ""))
+        .map((note) => Date.parse(note.startedAt ?? ""))
         .filter(Number.isFinite)
         .sort((left, right) => left - right)[0] || now;
     const requested =
@@ -400,7 +447,7 @@ export function createKnowledgeModel(initialState: unknown = null) {
     const points: CurvePoint[] = [];
     for (let offset = span; offset >= 0; offset -= 1) {
       const time = now - offset * DAY;
-      const active = indexedNotes.filter((note) => Date.parse(note.createdAt ?? "") <= time);
+      const active = indexedNotes.filter((note) => Date.parse(note.startedAt ?? "") <= time);
       const value = active.length
         ? active.reduce((sum, note) => sum + retentionAt(note.id, time), 0) / active.length
         : null;

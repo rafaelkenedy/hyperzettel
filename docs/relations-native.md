@@ -32,8 +32,8 @@ normalização exige uma nova `pipeline_version`. Isso força a reconstrução d
 
 ## Persistência
 
-O IndexedDB mantém notas, imagens e revisão espaçada. O arquivo
-`hyperzettel.sqlite`, no diretório de dados do aplicativo, mantém:
+O vault de arquivos HTML é a fonte da verdade das notas e imagens inline. O
+arquivo `hyperzettel.sqlite`, no diretório de dados do aplicativo, mantém:
 
 - o espelho de notas usado pelo backend;
 - embeddings e relações automáticas;
@@ -43,6 +43,13 @@ O IndexedDB mantém notas, imagens e revisão espaçada. O arquivo
 O hash do conteúdo evita inferência quando a nota e a versão do pipeline não
 mudaram. Editar uma nota invalida somente seu vetor. A substituição das
 sugestões automáticas não remove conexões manuais.
+
+Embeddings, relações automáticas e o checkpoint são reconstruíveis. Rejeições
+de sugestões representam uma decisão do usuário, não derivável do vault, e o
+backup JSON v3 as exporta e restaura em lote. Backups anteriores continuam
+válidos e simplesmente não carregam essas decisões. Essa distinção e os
+critérios de recuperação estão no
+[ADR 0006](adr/0006-html-per-note-persistence.md).
 
 ## Limite offline
 
@@ -60,10 +67,13 @@ cd src-tauri
 cargo test
 cargo test real_pipeline_reuses_cache_and_updates_incrementally -- --ignored --nocapture
 cargo test benchmark_embeddinggemma --release -- --ignored --nocapture
+cargo test --release --test benchmark_retrieval benchmark_lexical_semantic_and_hybrid_retrieval -- --ignored --nocapture
 ```
 
 O primeiro comando cobre o contrato sem carregar o modelo completo. Os demais
-validam inferência e benchmark com os recursos reais.
+validam inferência e benchmarks com os recursos reais. O protocolo e a baseline
+da comparação FTS5 × EmbeddingGemma × híbrido estão em
+`docs/benchmarks/retrieval-baseline.md`.
 
 ## Limitações atuais
 
